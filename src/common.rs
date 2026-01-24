@@ -14,6 +14,7 @@ pub mod ton {
 }
 
 /// Address Numbering Plan Indicator (NPI)
+#[allow(dead_code)]
 pub mod npi {
     pub const UNKNOWN: u8 = 0x00;
     pub const ISDN: u8 = 0x01;
