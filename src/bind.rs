@@ -113,7 +113,7 @@ impl Bind {
             ));
         }
 
-        let status_bytes = [buffer[4], buffer[5], buffer[6], buffer[7]];
+        let status_bytes = [buffer[8], buffer[9], buffer[10], buffer[11]];
         let command_status = u32::from_be_bytes(status_bytes);
 
         let status_name = common::get_status_description(command_status);

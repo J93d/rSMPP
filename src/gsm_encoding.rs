@@ -18,7 +18,7 @@ pub fn gsm_7bit_encode(text: &str) -> Result<Vec<u8>, String> {
     gsm_extended_charset.insert('€', 101);
 
     for char in text.chars() {
-        if let Some(index) = GSM_BASIC_CHARSET.find(char) {
+        if let Some(index) = GSM_BASIC_CHARSET.chars().position(|c| c == char) {
             encoded_text.push(index as u8);
         } else if let Some(&code) = gsm_extended_charset.get(&char) {
             encoded_text.push(0x1B); // Escape character
