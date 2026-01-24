@@ -216,6 +216,13 @@ export component AppWindow inherits Window {
                     }
                 }
 
+                // PID & DCS ROW
+                HorizontalLayout {
+                    spacing: 10px;
+                    pid_input := LabelledInput { label: "PID"; value: "0"; horizontal-stretch: 1; }
+                    dcs_input := LabelledInput { label: "DCS"; value: "0"; horizontal-stretch: 1; }
+                }
+
                 // OPTIONS ROW
                 HorizontalLayout {
                     spacing: 10px;
@@ -245,7 +252,7 @@ export component AppWindow inherits Window {
                             src_addr.value, src_ton.value, src_npi.value,
                             dest_addr.value, dest_ton.value, dest_npi.value,
                             msg_body.text, encoding_combo.current-value, "UDH",
-                            "0", "0", validity_input.value, dlr_check.checked
+                            pid_input.value, dcs_input.value, validity_input.value, dlr_check.checked
                         );
                     }
                 }
