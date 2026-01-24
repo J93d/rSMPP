@@ -33,6 +33,7 @@ fn main() -> std::io::Result<()> {
         res.set("ProductName", "rSMPP");
         res.set("OriginalFilename", "rSMPP.exe");
         res.set("LegalCopyright", "Copyright (c) 2024");
+        res.set("CompanyName", "My Company"); // Replace with your company name
         
         // Only set icon if the file exists (either pre-existing or generated)
         if icon_ico.exists() {
