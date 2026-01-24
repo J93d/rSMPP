@@ -4,7 +4,6 @@ pub const SMPP_INTERFACE_VERSION: u8 = 0x34;
 /// Address Type of Number (TON)
 pub mod ton {
     pub const UNKNOWN: u8 = 0x00;
-    pub const INTERNATIONAL: u8 = 0x01;
     pub const NATIONAL: u8 = 0x02;
     pub const NETWORK_SPECIFIC: u8 = 0x03;
     pub const SUBSCRIBER_NUMBER: u8 = 0x04;

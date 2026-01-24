@@ -1,69 +1,64 @@
 # rSMPP Client
 
-A Rust-based SMPP (Short Message Peer-to-Peer) client application featuring a modern, dark-themed GUI built with [Slint](https://slint.dev).
+A modern, high-performance, and secure SMPP v3.4 client built with Rust and Slint UI.
 
-## Features
+![rSMPP Client Screenshot](screenshot.png)
 
--   **Modern GUI**: A responsive, dark-themed user interface for easy interaction.
--   **SMPP Protocol Support**:
-    -   Bind Receiver, Transmitter, Transceiver (Unified Async Module)
-    -   Submit SM (Short Message)
-    -   Deliver SM (Receipt Handling)
-    -   Enquire Link (Heartbeat)
-    -   Comprehensive list of SMPP v3.4/v5.0 Error Codes
--   **Advanced Message Handling**:
-    -   **GSM Encoding**: 7-bit, 8-bit (Latin-1), 16-bit (UCS-2).
-    -   **Concatenation**: Send long messages via UDH, SAR, or Payload.
--   **Real-time Logging**: In-app console to view PDU transmission logs and server responses.
--   **Async Architecture**: Built on `tokio` for efficient, non-blocking asynchronous network operations.
+## 🚀 Key Features
 
-## Application Structure
+### 🖥️ Modern User Interface
+-   **Built with Slint**: Lightweight, responsive, and native-looking UI.
+-   **Dark Theme**: Sleek, professional dark mode design.
+-   **Layout Optimized**: "Use every pixel" philosophy with compact, aligned controls.
+-   **Responsive**: Adapts perfectly to different window sizes (min-width derived).
 
--   `src/main.rs`: Entry point. Handles the UI and Async runtime.
--   `src/bind.rs`: Unified Bind logic (Rx/Tx/Trx).
--   `src/submit_sm.rs`: Submit SM and PDU creation/splitting logic.
--   `src/deliver_sm.rs`: Deliver SM handling logic.
--   `src/common.rs`: Shared constants and Error code mapping.
--   `src/gsm_encoding.rs`: Character set encoding logic.
--   `ui/appwindow.slint`: UI definition.
+### 🔒 Security & Connectivity
+-   **TLS 1.2 / 1.3 Support**: Secure connections using `rustls`.
+-   **Flexible SSL**: "Use SSL" toggle for secure vs plain TCP connections.
+-   **Dev-Friendly**: Includes a "Dangerous Verifier" mode to skip certificate validation (great for local testing/self-signed certs).
+-   **Graceful Disconnect**: Dedicated Unbind support for clean session termination.
 
-## Prerequisites
+### 📨 Advanced Messaging
+-   **Encoding Support**: 
+    -   **GSM 7-bit**: Standard SMS encoding (basic + extended charset).
+    -   **Latin-1 (8-bit)**: For binary or Western European languages.
+    -   **UCS-2 (16-bit)**: Full support for Emoji and international scripts.
+-   **Long Message Handling**:
+    -   **UDH (User Data Header)**: Standard concatenation.
+    -   **SAR (Segmentation and Reassembly)**: Optional TLV-based splitting.
+    -   **Message Payload**: Send up to 64kb as a single payload TLV.
+-   **Delivery Receipts (DLR)**: Request and view detailed Delivery Reports.
 
--   Latest [Rust](https://rustup.rs/) stable toolchain.
--   A working SMPP server (SMSC) or simulator.
+### 📊 Robust Logging
+-   **Live Transaction Log**: Real-time view of all sent and received PDUs.
+-   **Detailed DeliverSM**: Logs Sender, Recipient, Message Content, and specific DLR status/IDs.
+-   **PDU Inspection**: Hex dumps and detailed error reporting for debugging.
 
-## Building and Running
+## 🛠️ Getting Started
 
-1.  **Build the project**:
-    ```bash
-    cargo build --release
-    ```
+### Prerequisites
+-   [Rust Toolchain](https://rustup.rs/) (cargo) installed.
 
-2.  **Run the application**:
-    ```bash
-    cargo run --release
-    ```
+### Run the Application
+```bash
+cargo run --release
+```
 
-## Antivirus / Defender Issues
+### Configuration
+1.  **Server Config**: Enter Host IP and Port (default 2775).
+2.  **Credentials**: Enter System ID and Password.
+3.  **Bind Mode**: Choose Transceiver (Send/Recv), Information Receiver, or Transmitter.
+4.  **SSL**: Check "Use SSL" for secure connections.
+5.  **Connect**: Click to bind to the server.
 
-If **Microsoft Defender** or other antivirus software flags the executable:
-1.  **This is a False Positive**: The application is unsigned (does not have a digital code signing certificate), and it opens network connections (SMPP), which can trigger heuristic detection algorithms.
-2.  **Add an Exclusion**: Go to **Windows Security > Virus & threat protection > Manage settings > Exclusions** and add the `rSMPP.exe` or the build folder.
-3.  **Metadata**: The latest build includes strict file metadata to help mitigate "unknown publisher" heuristics, but without a paid certificate, flags may still occur on new machines.
+## 🏗️ Tech Stack
+-   **Language**: Rust 🦀
+-   **UI Framework**: [Slint](https://slint.dev/)
+-   **Async Runtime**: Tokio
+-   **TLS**: tokio-rustls / rustls
 
-## Usage
+## 📝 License
+MIT License
 
-1.  **Connection**:
-    -   Enter SMSC credentials.
-    -   Select **Bind Mode** (Transmitter, Receiver, Transceiver).
-    -   Click **Connect**.
-2.  **Sending SMS**:
-    -   Enter Sender, Receiver, and Message.
-    -   **Encoding**: Choose GSM 7-bit (Default), Latin-1, or UCS-2.
-    -   **Multipart Mode**: Choose logic for long messages (UDH is most common).
-    -   Click **Send SMS**.
-
-## Future Roadmap
-
--   Delivery Receipt (DLR) handling.
--   Store and Forward queueing.
+## 🤖 Disclaimer
+This project was co-developed with **Google Gemini**, an advanced AI assistant, which generated the majority of the code, UI design, and documentation based on user requirements and prompts.

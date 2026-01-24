@@ -49,7 +49,6 @@ enum Cmd {
 
 enum WriterCmd {
     Write(Vec<u8>),
-    Close,
 }
 
 // Dangerous Verifier to skip certificate validation
@@ -174,7 +173,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             tx_writer = Some(tx_w.clone());
 
                             let tx_ui_clone = tx_ui.clone();
-                            let connection_task = tokio::spawn(async move {
+                            let _ = tokio::spawn(async move {
                                 let mut interval = time::interval(Duration::from_secs(5));
                                 loop {
                                     select! {
@@ -188,7 +187,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                         break;
                                                     }
                                                 }
-                                                WriterCmd::Close => break,
                                             }
                                         }
                                         
