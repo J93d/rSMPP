@@ -6,24 +6,31 @@ A Rust-based SMPP (Short Message Peer-to-Peer) client application featuring a mo
 
 -   **Modern GUI**: A responsive, dark-themed user interface for easy interaction.
 -   **SMPP Protocol Support**:
-    -   Bind Transmitter (async)
+    -   Bind Receiver, Transmitter, Transceiver (Unified Async Module)
     -   Submit SM (Short Message)
+    -   Deliver SM (Receipt Handling)
+    -   Enquire Link (Heartbeat)
     -   Comprehensive list of SMPP v3.4/v5.0 Error Codes
+-   **Advanced Message Handling**:
+    -   **GSM Encoding**: 7-bit, 8-bit (Latin-1), 16-bit (UCS-2).
+    -   **Concatenation**: Send long messages via UDH, SAR, or Payload.
 -   **Real-time Logging**: In-app console to view PDU transmission logs and server responses.
--   **Async Architecture**: Built on `tokio` for efficient, non-blocking asynchronous network operations, with a separate thread for the UI event loop to ensure responsiveness.
+-   **Async Architecture**: Built on `tokio` for efficient, non-blocking asynchronous network operations.
 
 ## Application Structure
 
--   `src/main.rs`: Entry point. Handles the Slint UI event loop and spawns the `tokio` runtime for SMPP network operations (Connect, Send Message).
--   `src/bind_transmitter.rs`: Implementation of the SMPP Bind Transmitter PDU and response parsing.
--   `src/submit_sm.rs`: Implementation of the Submit SM PDU creation and response parsing.
--   `src/smpp_error_codes.rs`: Mapping of hex status codes to human-readable SMPP error strings (e.g., `ESME_ROK`, `ESME_RINVPASWD`).
--   `ui/appwindow.slint`: Declarative UI definition using Slint.
+-   `src/main.rs`: Entry point. Handles the UI and Async runtime.
+-   `src/bind.rs`: Unified Bind logic (Rx/Tx/Trx).
+-   `src/submit_sm.rs`: Submit SM and PDU creation/splitting logic.
+-   `src/deliver_sm.rs`: Deliver SM handling logic.
+-   `src/common.rs`: Shared constants and Error code mapping.
+-   `src/gsm_encoding.rs`: Character set encoding logic.
+-   `ui/appwindow.slint`: UI definition.
 
 ## Prerequisites
 
--   Time for correct Rust installation use [rustup](https://rustup.rs/).
--   A working SMPP server (SMSC) or simulator to connect to.
+-   Latest [Rust](https://rustup.rs/) stable toolchain.
+-   A working SMPP server (SMSC) or simulator.
 
 ## Building and Running
 
@@ -37,29 +44,26 @@ A Rust-based SMPP (Short Message Peer-to-Peer) client application featuring a mo
     cargo run --release
     ```
 
+## Antivirus / Defender Issues
+
+If **Microsoft Defender** or other antivirus software flags the executable:
+1.  **This is a False Positive**: The application is unsigned (does not have a digital code signing certificate), and it opens network connections (SMPP), which can trigger heuristic detection algorithms.
+2.  **Add an Exclusion**: Go to **Windows Security > Virus & threat protection > Manage settings > Exclusions** and add the `rSMPP.exe` or the build folder.
+3.  **Metadata**: The latest build includes strict file metadata to help mitigate "unknown publisher" heuristics, but without a paid certificate, flags may still occur on new machines.
+
 ## Usage
 
 1.  **Connection**:
-    -   Launch the app.
-    -   Enter the SMSC **IP Address** and **Port**.
-    -   Enter your **System ID** and **Password**.
+    -   Enter SMSC credentials.
+    -   Select **Bind Mode** (Transmitter, Receiver, Transceiver).
     -   Click **Connect**.
-    -   Check the *Logs* panel for "Sent Bind Transmitter PDU" and "Bind Response: ESME_ROK".
-
 2.  **Sending SMS**:
-    -   Once connected, navigate to the "Send Message" panel.
-    -   Enter the **Source Address** (Sender ID) and **Destination Address**.
-    -   Type your message.
+    -   Enter Sender, Receiver, and Message.
+    -   **Encoding**: Choose GSM 7-bit (Default), Latin-1, or UCS-2.
+    -   **Multipart Mode**: Choose logic for long messages (UDH is most common).
     -   Click **Send SMS**.
-    -   Verify the status in the *Logs* panel.
-
-## Development Notes
-
--   **Runtime Management**: The application manually manages a `tokio::runtime::Runtime` to allow the Slint UI (which blocks the main thread) to coexist with async network tasks.
--   **Error Handling**: Uses `thiserror` for typed errors and `anyhow` for top-level error management.
 
 ## Future Roadmap
 
--   GSM 7-bit, 8-bit, and 16-bit encoding support.
--   Long message support (Concatenation via UDH/SAR/Payload).
--   Delivery Receipt handling.
+-   Delivery Receipt (DLR) handling.
+-   Store and Forward queueing.

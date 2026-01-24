@@ -1,13 +1,13 @@
-import { Button, VerticalBox, LineEdit, TextEdit, ScrollView, HorizontalBox, GroupBox, StandardListView } from "std-widgets.slint";
+import { Button, VerticalBox, LineEdit, TextEdit, ScrollView, HorizontalBox, GroupBox, StandardListView, ComboBox } from "std-widgets.slint";
 
 export component AppWindow inherits Window {
     title: "rSMPP Client";
     min-width: 800px;
     min-height: 600px;
-    background: #1e1e1e; // Dark background
+    background: #1e1e1e;
 
-    callback connect(string, string, string, string); // ip, port, system_id, password
-    callback send_message(string, string, string); // source, dest, message
+    callback connect(string, string, string, string, string); // ip, port, system_id, password, bind_mode
+    callback send_message(string, string, string, string, string); // source, dest, message, encoding, multipart_mode
     
     in property <string> connection_status: "Disconnected";
     in property <bool> is_connected: false;
@@ -17,7 +17,7 @@ export component AppWindow inherits Window {
         padding: 20px;
         spacing: 20px;
 
-        // Header
+        // ... (Header and Connection Panel remain same) ...
         Text {
             text: "rSMPP Client";
             font-size: 24px;
@@ -25,7 +25,6 @@ export component AppWindow inherits Window {
             color: #ffffff;
         }
 
-        // Connection Panel
         GroupBox {
             title: "Connection Settings";
             VerticalBox {
@@ -63,13 +62,29 @@ export component AppWindow inherits Window {
                         width: 150px;
                     }
                 }
+                
+                HorizontalBox {
+                    spacing: 10px;
+                    Text { text: "Bind Mode:"; color: #cccccc; vertical-alignment: center; }
+                    bind_mode_combo := ComboBox {
+                        model: ["Transceiver", "Transmitter", "Receiver"];
+                        current-value: "Transceiver";
+                        width: 150px;
+                    }
+                }
 
                 HorizontalBox {
                     Button {
                         text: root.is_connected ? "Disconnect" : "Connect";
                         primary: true;
                         clicked => {
-                            root.connect(ip_input.text, port_input.text, sys_id_input.text, pass_input.text);
+                            root.connect(
+                                ip_input.text, 
+                                port_input.text, 
+                                sys_id_input.text, 
+                                pass_input.text,
+                                bind_mode_combo.current-value
+                            );
                         }
                     }
                     
@@ -104,6 +119,23 @@ export component AppWindow inherits Window {
                         width: 150px;
                     }
                 }
+                
+                HorizontalBox {
+                    spacing: 20px;
+                    Text { text: "Encoding:"; color: #cccccc; vertical-alignment: center; }
+                    encoding_combo := ComboBox {
+                        model: ["GSM 7-bit", "Latin-1 (8-bit)", "UCS-2 (16-bit)"];
+                        current-value: "GSM 7-bit";
+                        width: 150px;
+                    }
+
+                    Text { text: "Multipart Mode:"; color: #cccccc; vertical-alignment: center; }
+                    multipart_combo := ComboBox {
+                        model: ["UDH", "SAR", "Payload"];
+                        current-value: "UDH";
+                        width: 120px;
+                    }
+                }
 
                 Text { text: "Message:"; color: #cccccc; }
                 msg_input := TextEdit {
@@ -113,13 +145,19 @@ export component AppWindow inherits Window {
                 Button {
                     text: "Send SMS";
                     clicked => {
-                        root.send_message(src_addr_input.text, dest_addr_input.text, msg_input.text);
+                        root.send_message(
+                            src_addr_input.text, 
+                            dest_addr_input.text, 
+                            msg_input.text,
+                            encoding_combo.current-value,
+                            multipart_combo.current-value
+                        );
                     }
                 }
             }
         }
-
-        // Logs
+        
+        // ... (Logs remain same) ...
         GroupBox {
             title: "Logs";
             vertical-stretch: 1;

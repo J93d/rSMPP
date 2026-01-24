@@ -1,4 +1,53 @@
-pub fn error_codes(status: u32) -> String {
+/// SMPP Interface Version 3.4
+pub const SMPP_INTERFACE_VERSION: u8 = 0x34;
+
+/// Address Type of Number (TON)
+pub mod ton {
+    pub const UNKNOWN: u8 = 0x00;
+    pub const INTERNATIONAL: u8 = 0x01;
+    pub const NATIONAL: u8 = 0x02;
+    pub const NETWORK_SPECIFIC: u8 = 0x03;
+    pub const SUBSCRIBER_NUMBER: u8 = 0x04;
+    pub const ALPHANUMERIC: u8 = 0x05;
+    pub const ABBREVIATED: u8 = 0x06;
+}
+
+/// Address Numbering Plan Indicator (NPI)
+pub mod npi {
+    pub const UNKNOWN: u8 = 0x00;
+    pub const ISDN: u8 = 0x01;
+    pub const DATA: u8 = 0x03;
+    pub const TELEX: u8 = 0x04;
+    pub const LAND_MOBILE: u8 = 0x06;
+    pub const NATIONAL: u8 = 0x08;
+    pub const PRIVATE: u8 = 0x09;
+    pub const ERMES: u8 = 0x0A;
+    pub const INTERNET: u8 = 0x0E;
+    pub const WAP: u8 = 0x12;
+}
+
+/// Command IDs
+pub mod command_id {
+    pub const GENERIC_NACK: u32 = 0x80000000;
+    pub const BIND_RECEIVER: u32 = 0x00000001;
+    pub const BIND_RECEIVER_RESP: u32 = 0x80000001;
+    pub const BIND_TRANSMITTER: u32 = 0x00000002;
+    pub const BIND_TRANSMITTER_RESP: u32 = 0x80000002;
+    pub const SUBMIT_SM: u32 = 0x00000004;
+    pub const SUBMIT_SM_RESP: u32 = 0x80000004;
+    pub const DELIVER_SM: u32 = 0x00000005;
+    pub const DELIVER_SM_RESP: u32 = 0x80000005;
+    pub const BIND_TRANSCEIVER: u32 = 0x00000009;
+    pub const BIND_TRANSCEIVER_RESP: u32 = 0x80000009;
+    pub const ENQUIRE_LINK: u32 = 0x00000015;
+    pub const ENQUIRE_LINK_RESP: u32 = 0x80000015;
+}
+
+/// Command Status
+pub const COMMAND_STATUS_OK: u32 = 0x00000000;
+
+/// Helper function to get error description from status code
+pub fn get_status_description(status: u32) -> String {
     match status {
         0x00000000 => "ESME_ROK".to_string(),
         0x00000001 => "ESME_RINVMSGLEN".to_string(),

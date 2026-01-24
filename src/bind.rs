@@ -2,17 +2,30 @@ use rand::Rng;
 use std::io::{self, Write};
 use std::io::{Error, ErrorKind, Result};
 
-use crate::smpp_error_codes;
+use crate::common::{self, command_id};
 
-const BIND_TRANSMITTER_CMD_ID: u32 = 0x00000002;
-const COMMAND_STATUS_OK: u32 = 0x00000000;
-const SMPP_INTERFACE_VERSION: u8 = 3;
-const ADDR_TON_UNKNOWN: u8 = 1;
-const ADDR_NPI_ISDN: u8 = 1;
-pub type BindTransmitterResult = std::result::Result<Vec<u8>, BindTransmitterError>;
+/// Enum representing the bind mode
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BindMode {
+    Receiver,
+    Transmitter,
+    Transceiver,
+}
+
+impl BindMode {
+    pub fn command_id(&self) -> u32 {
+        match self {
+            BindMode::Receiver => command_id::BIND_RECEIVER,
+            BindMode::Transmitter => command_id::BIND_TRANSMITTER,
+            BindMode::Transceiver => command_id::BIND_TRANSCEIVER,
+        }
+    }
+}
+
+pub type BindResult = std::result::Result<Vec<u8>, BindError>;
 
 #[derive(Debug, thiserror::Error)]
-pub enum BindTransmitterError {
+pub enum BindError {
     #[error("System ID is too long (max 16 bytes): {0}")]
     SystemIdTooLong(usize),
     #[error("Password is too long (max 9 bytes): {0}")]
@@ -22,57 +35,44 @@ pub enum BindTransmitterError {
 }
 
 #[derive(Debug, Clone)]
-pub struct BindTransmitterBuilder {
+pub struct BindBuilder {
     pub system_id: String,
     pub password: String,
     pub system_type: String,
+    pub mode: BindMode,
 }
 
-impl Default for BindTransmitterBuilder {
-    fn default() -> Self {
-        Self {
-            system_id: String::new(),
-            password: String::new(),
-            system_type: String::new(),
-        }
-    }
-}
-
-impl BindTransmitterBuilder {
-    pub fn new(system_id: impl Into<String>, password: impl Into<String>) -> Self {
+impl BindBuilder {
+    pub fn new(mode: BindMode, system_id: impl Into<String>, password: impl Into<String>) -> Self {
         Self {
             system_id: system_id.into(),
             password: password.into(),
             system_type: String::new(),
+            mode,
         }
-    }
-
-    pub fn with_system_type(mut self, system_type: impl Into<String>) -> Self {
-        self.system_type = system_type.into();
-        self
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct BindTransmitterResponse {
+pub struct BindResponse {
     pub command_status: u32,
     pub status_name: String,
 }
 
-pub struct BindTransmitter;
+pub struct Bind;
 
-impl BindTransmitter {
-    pub async fn bind_transmitter_async(params: BindTransmitterBuilder) -> BindTransmitterResult {
+impl Bind {
+    pub async fn bind_async(params: BindBuilder) -> BindResult {
         let system_id_bytes = params.system_id.as_bytes();
         let password_bytes = params.password.as_bytes();
         let system_type_bytes = params.system_type.as_bytes();
 
         if system_id_bytes.len() > 16 {
-            return Err(BindTransmitterError::SystemIdTooLong(system_id_bytes.len()));
+            return Err(BindError::SystemIdTooLong(system_id_bytes.len()));
         }
 
         if password_bytes.len() > 9 {
-            return Err(BindTransmitterError::PasswordTooLong(password_bytes.len()));
+            return Err(BindError::PasswordTooLong(password_bytes.len()));
         }
 
         let sequence_number = rand::thread_rng().gen_range(1..=4294967294u32);
@@ -84,8 +84,8 @@ impl BindTransmitter {
 
         // Write PDU header (16 bytes)
         pdu.write_all(&(command_length as u32).to_be_bytes())?;
-        pdu.write_all(&BIND_TRANSMITTER_CMD_ID.to_be_bytes())?;
-        pdu.write_all(&COMMAND_STATUS_OK.to_be_bytes())?;
+        pdu.write_all(&params.mode.command_id().to_be_bytes())?;
+        pdu.write_all(&common::COMMAND_STATUS_OK.to_be_bytes())?;
         pdu.write_all(&sequence_number.to_be_bytes())?;
 
         pdu.write_all(system_id_bytes)?;
@@ -97,15 +97,15 @@ impl BindTransmitter {
         pdu.write_all(system_type_bytes)?;
         pdu.write_all(&[0u8])?;
 
-        pdu.write_all(&[SMPP_INTERFACE_VERSION])?;
-        pdu.write_all(&[ADDR_TON_UNKNOWN])?;
-        pdu.write_all(&[ADDR_NPI_ISDN])?;
+        pdu.write_all(&[common::SMPP_INTERFACE_VERSION])?;
+        pdu.write_all(&[common::ton::UNKNOWN])?;
+        pdu.write_all(&[common::npi::ISDN])?;
         pdu.write_all(&[0u8])?;
 
         Ok(pdu)
     }
 
-    pub async fn parse_bind_transmitter_resp(buffer: &[u8]) -> Result<BindTransmitterResponse> {
+    pub async fn parse_bind_resp(buffer: &[u8]) -> Result<BindResponse> {
         if buffer.len() < 16 {
             return Err(Error::new(
                 ErrorKind::InvalidData,
@@ -116,9 +116,9 @@ impl BindTransmitter {
         let status_bytes = [buffer[4], buffer[5], buffer[6], buffer[7]];
         let command_status = u32::from_be_bytes(status_bytes);
 
-        let status_name = smpp_error_codes::error_codes(command_status);
+        let status_name = common::get_status_description(command_status);
 
-        Ok(BindTransmitterResponse {
+        Ok(BindResponse {
             command_status,
             status_name,
         })
