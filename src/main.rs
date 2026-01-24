@@ -18,6 +18,8 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 use tokio::select;
+use rand::Rng;
+
 
 slint::include_modules!();
 
@@ -29,7 +31,13 @@ enum UiEvent {
 enum Cmd {
     Connect { ip: String, port: String, system_id: String, password: String, bind_mode: String },
     Disconnect,
-    SendMessage { source: String, dest: String, message: String, encoding: String, mode: String },
+    Unbind,
+    SendMessage { 
+        source: String, src_ton: String, src_npi: String,
+        dest: String, dest_ton: String, dest_npi: String,
+        message: String, encoding: String, mode: String,
+        pid: String, dcs: String, validity: String, dlr: bool 
+    },
 }
 
 enum WriterCmd {
@@ -182,6 +190,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                                 Err(e) => { let _ = tx_ui_read.send(UiEvent::Log(format!("DeliverSM Parse Error: {}", e))).await; }
                                                             }
                                                         },
+                                                        0x80000006 => { // UNBIND_RESP
+                                                            let _ = tx_ui_read.send(UiEvent::Log("Unbind Response Received".to_string())).await;
+                                                            let _ = tx_ui_read.send(UiEvent::ConnectionStatus("Disconnected".to_string(), false)).await;
+                                                        },
                                                         command_id::ENQUIRE_LINK_RESP => {
                                                              // let _ = tx_ui_read.send(UiEvent::Log("Recv EnquireLinkResp".to_string())).await;
                                                         },
@@ -227,6 +239,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 }
+                Cmd::Unbind => {
+                     if let Some(tx) = &tx_writer {
+                        let _ = tx_ui.send(UiEvent::Log("Sending Unbind...".to_string())).await;
+                        // Create and send Unbind PDU (0x00000006)
+                        let mut pdu = Vec::new();
+                        pdu.extend_from_slice(&16u32.to_be_bytes()); // Length
+                        pdu.extend_from_slice(&0x00000006u32.to_be_bytes()); // UNBIND
+                        pdu.extend_from_slice(&0u32.to_be_bytes()); // Status
+                        pdu.extend_from_slice(&rand::thread_rng().gen_range(1..10000u32).to_be_bytes()); // Seq
+                        
+                        let _ = tx.send(WriterCmd::Write(pdu)).await;
+                     }
+                }
                 Cmd::Disconnect => {
                     if let Some(mut tx) = tx_writer.take() {
                         let _ = tx.send(WriterCmd::Close).await;
@@ -237,7 +262,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                      let _ = tx_ui.send(UiEvent::Log("Disconnected".to_string())).await;
                      let _ = tx_ui.send(UiEvent::ConnectionStatus("Disconnected".to_string(), false)).await;
                 }
-                Cmd::SendMessage { source, dest, message, encoding, mode } => {
+                Cmd::SendMessage { source, src_ton, src_npi, dest, dest_ton, dest_npi, message, encoding, mode, pid, dcs, validity, dlr } => {
                      if let Some(tx) = &tx_writer {
                         let enc_enum = match encoding.as_str() {
                             "GSM 7-bit" => Encoding::Gsm7Bit,
@@ -253,7 +278,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             _ => MultipartMode::Udh,
                         };
 
-                        match SubmitSm::create_pdus(source, dest, message, enc_enum, mode_enum).await {
+                        match SubmitSm::create_pdus(
+                            source, src_ton.parse().unwrap_or(1), src_npi.parse().unwrap_or(1),
+                            dest, dest_ton.parse().unwrap_or(1), dest_npi.parse().unwrap_or(1),
+                            message, enc_enum, mode_enum,
+                            pid.parse().unwrap_or(0), dcs.parse().ok(), validity, dlr
+                        ).await {
                             Ok(pdus) => {
                                 let total = pdus.len();
                                 for (i, pdu) in pdus.iter().enumerate() {
@@ -285,14 +315,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     });
 
+    let tx_cmd_unbind = tx_cmd.clone();
+    main_window.on_unbind(move || {
+        let _ = tx_cmd_unbind.blocking_send(Cmd::Unbind);
+    });
+
     let tx_cmd_send = tx_cmd.clone();
-    main_window.on_send_message(move |src, dest, msg, enc, mode| {
+    main_window.on_send_message(move |src, src_ton, src_npi, dest, dest_ton, dest_npi, msg, enc, mode, pid, dcs, val, dlr| {
          let _ = tx_cmd_send.blocking_send(Cmd::SendMessage {
             source: src.into(),
+            src_ton: src_ton.into(),
+            src_npi: src_npi.into(),
             dest: dest.into(),
+            dest_ton: dest_ton.into(),
+            dest_npi: dest_npi.into(),
             message: msg.into(),
             encoding: enc.into(),
             mode: mode.into(),
+            pid: pid.into(),
+            dcs: dcs.into(),
+            validity: val.into(),
+            dlr
         });
     });
 

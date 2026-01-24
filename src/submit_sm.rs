@@ -185,17 +185,21 @@ pub struct SubmitSm;
 
 impl SubmitSm {
     pub async fn create_pdus(
-        source: String, 
-        dest: String, 
+        source: String, src_ton: u8, src_npi: u8,
+        dest: String, dest_ton: u8, dest_npi: u8,
         text: String, 
         encoding: Encoding, 
-        mode: MultipartMode
+        mode: MultipartMode,
+        pid: u8, dcs_override: Option<u8>, validity: String, dlr: bool
     ) -> Result<Vec<Vec<u8>>> {
-        let (encoded_bytes, data_coding) = match encoding {
+        let (encoded_bytes, default_data_coding) = match encoding {
             Encoding::Gsm7Bit => (gsm_encoding::gsm_7bit_encode(&text).map_err(|e| Error::new(ErrorKind::InvalidInput, e))?, 0x00),
             Encoding::Latin1 => (gsm_encoding::encode_8bit(&text), 0x03),
             Encoding::Ucs2 => (gsm_encoding::encode_16bit(&text), 0x08),
         };
+
+        let data_coding = dcs_override.unwrap_or(default_data_coding);
+        let registered_delivery = if dlr { 1 } else { 0 };
 
         // Determine max segment length
         let (single_max, multipart_max) = match encoding {
@@ -208,8 +212,15 @@ impl SubmitSm {
             // Single message or Payload mode
             let mut params = SubmitSmParams::default();
             params.source_addr = source;
+            params.source_ton = TypeOfNumber::from(src_ton);
+            params.source_npi = NumericPlanIndicator::from(src_npi);
             params.destination_addr = dest;
+            params.dest_ton = TypeOfNumber::from(dest_ton);
+            params.dest_npi = NumericPlanIndicator::from(dest_npi);
             params.data_coding = data_coding;
+            params.protocol_id = pid;
+            params.validity_period = validity.clone();
+            params.registered_delivery = registered_delivery;
 
             if mode == MultipartMode::Payload && encoded_bytes.len() > single_max {
                 // Use Message Payload TLV (0x0424)
@@ -238,8 +249,15 @@ impl SubmitSm {
 
             let mut params = SubmitSmParams::default();
             params.source_addr = source.clone();
+            params.source_ton = TypeOfNumber::from(src_ton);
+            params.source_npi = NumericPlanIndicator::from(src_npi);
             params.destination_addr = dest.clone();
+            params.dest_ton = TypeOfNumber::from(dest_ton);
+            params.dest_npi = NumericPlanIndicator::from(dest_npi);
             params.data_coding = data_coding;
+            params.protocol_id = pid;
+            params.validity_period = validity.clone();
+            params.registered_delivery = registered_delivery;
 
             match mode {
                 MultipartMode::Udh => {

@@ -1,174 +1,276 @@
-import { Button, VerticalBox, LineEdit, TextEdit, ScrollView, HorizontalBox, GroupBox, StandardListView, ComboBox } from "std-widgets.slint";
+import { Button, VerticalBox, LineEdit, GroupBox, HorizontalBox, ComboBox, CheckBox, ScrollView, StandardListView } from "std-widgets.slint";
 
+// --- THEME CONFIGURATION ---
+global Palette {
+    out property <color> background: #121212;
+    out property <color> surface: #1e1e1e;
+    out property <color> border: #333333;
+    out property <color> primary: #3daee9;
+    out property <color> text: #e0e0e0;
+    out property <color> text-muted: #888888;
+    out property <color> success: #2ecc71;
+    out property <color> error: #e74c3c;
+}
+
+// --- REUSABLE COMPONENT: INPUT FIELD WITH LABEL ---
+component LabelledInput inherits VerticalLayout {
+    in property <string> label;
+    in property <string> value <=> input.text;
+    in property <string> placeholder;
+    in property <InputType> input-type: text;
+    
+    spacing: 4px;
+
+    Text {
+        text: root.label;
+        color: Palette.text-muted;
+        font-size: 11px;
+    }
+    input := LineEdit {
+        placeholder-text: root.placeholder;
+        input-type: root.input-type;
+        height: 32px;
+    }
+}
+
+// --- REUSABLE COMPONENT: CARD CONTAINER ---
+component Card inherits Rectangle {
+    in property <string> title;
+    
+    background: Palette.surface;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Palette.border;
+
+    VerticalLayout {
+        padding: 15px;
+        spacing: 12px;
+
+        if (root.title != "") : Text {
+            text: root.title;
+            font-size: 14px;
+            font-weight: 700;
+            color: Palette.primary;
+        }
+        @children
+    }
+}
+
+// --- MAIN APPLICATION ---
 export component AppWindow inherits Window {
     title: "rSMPP Client";
-    min-width: 800px;
-    min-height: 600px;
-    background: #1e1e1e;
+    min-width: 450px; 
+    min-height: 700px;
+    background: Palette.background;
 
-    callback connect(string, string, string, string, string); // ip, port, system_id, password, bind_mode
-    callback send_message(string, string, string, string, string); // source, dest, message, encoding, multipart_mode
-    
+    // --- CALLBACKS ---
+    callback connect(string, string, string, string, string); 
+    callback unbind(); 
+    callback send_message(
+        string, string, string, // source
+        string, string, string, // dest
+        string, string, string, string, string, string, bool // payload details
+    ); 
+
+    // --- PROPERTIES ---
     in property <string> connection_status: "Disconnected";
     in property <bool> is_connected: false;
     in property <[string]> logs: [];
 
-    VerticalBox {
-        padding: 20px;
-        spacing: 20px;
+    ScrollView {
+        width: 100%;
+        height: 100%;
+        viewport-width: parent.width; // Prevent horizontal scroll
 
-        // ... (Header and Connection Panel remain same) ...
-        Text {
-            text: "rSMPP Client";
-            font-size: 24px;
-            font-weight: 700;
-            color: #ffffff;
-        }
+        VerticalBox {
+            padding: 20px;
+            spacing: 20px;
+            alignment: start;
 
-        GroupBox {
-            title: "Connection Settings";
-            VerticalBox {
+            // --- HEADER SECTION ---
+            HorizontalLayout {
                 spacing: 10px;
-                
-                HorizontalBox {
-                    spacing: 10px;
-                    Text { text: "IP:"; color: #cccccc; vertical-alignment: center; }
-                    ip_input := LineEdit { 
-                        placeholder-text: "127.0.0.1";
-                        text: "127.0.0.1";
-                        width: 150px;
-                    }
-                    
-                    Text { text: "Port:"; color: #cccccc; vertical-alignment: center; }
-                    port_input := LineEdit { 
-                        placeholder-text: "2775";
-                        text: "2775";
-                        width: 80px;
-                    }
-                }
-
-                HorizontalBox {
-                    spacing: 10px;
-                    Text { text: "System ID:"; color: #cccccc; vertical-alignment: center; }
-                    sys_id_input := LineEdit { 
-                        placeholder-text: "User"; 
-                        width: 150px;
-                    }
-
-                    Text { text: "Password:"; color: #cccccc; vertical-alignment: center; }
-                    pass_input := LineEdit { 
-                        placeholder-text: "Password"; 
-                        input-type: password;
-                        width: 150px;
-                    }
+                Text {
+                    text: "rSMPP Client";
+                    font-size: 24px;
+                    font-weight: 800;
+                    color: Palette.text;
+                    vertical-alignment: center;
                 }
                 
-                HorizontalBox {
-                    spacing: 10px;
-                    Text { text: "Bind Mode:"; color: #cccccc; vertical-alignment: center; }
-                    bind_mode_combo := ComboBox {
-                        model: ["Transceiver", "Transmitter", "Receiver"];
-                        current-value: "Transceiver";
-                        width: 150px;
-                    }
-                }
+                Rectangle { horizontal-stretch: 1; } // Spacer
 
-                HorizontalBox {
-                    Button {
-                        text: root.is_connected ? "Disconnect" : "Connect";
-                        primary: true;
-                        clicked => {
-                            root.connect(
-                                ip_input.text, 
-                                port_input.text, 
-                                sys_id_input.text, 
-                                pass_input.text,
-                                bind_mode_combo.current-value
-                            );
+                // Status Badge
+                VerticalLayout {
+                    alignment: center;
+                        Rectangle {
+                        border-radius: 12px;
+                        background: root.is_connected ? Palette.success.darker(50%) : Palette.error.darker(50%);
+                        border-width: 1px;
+                        border-color: root.is_connected ? Palette.success : Palette.error;
+                        width: 120px;
+                        height: 24px;
+                        
+                        Text {
+                            text: root.connection_status;
+                            color: #ffffff;
+                            font-size: 11px;
+                            font-weight: 600;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
                         }
-                    }
-                    
-                    Text {
-                        text: "Status: " + root.connection_status;
-                        color: root.is_connected ? #00ff00 : #ff0000;
-                        vertical-alignment: center;
                     }
                 }
             }
-        }
 
-        // Messaging Panel
-        GroupBox {
-            title: "Send Message";
-            enabled: root.is_connected;
-            
-            VerticalBox {
-                spacing: 10px;
-
-                HorizontalBox {
-                    spacing: 10px;
-                    Text { text: "Source Addr:"; color: #cccccc; vertical-alignment: center; }
-                    src_addr_input := LineEdit { 
-                        placeholder-text: "SENDER";
-                        width: 150px;
-                    }
-
-                    Text { text: "Dest Addr:"; color: #cccccc; vertical-alignment: center; }
-                    dest_addr_input := LineEdit { 
-                        placeholder-text: "RECEIVER"; 
-                        width: 150px;
-                    }
-                }
+            // --- CONNECTION CARD ---
+            Card {
+                title: "Server Configuration";
                 
-                HorizontalBox {
-                    spacing: 20px;
-                    Text { text: "Encoding:"; color: #cccccc; vertical-alignment: center; }
-                    encoding_combo := ComboBox {
-                        model: ["GSM 7-bit", "Latin-1 (8-bit)", "UCS-2 (16-bit)"];
-                        current-value: "GSM 7-bit";
-                        width: 150px;
+                // HOST & PORT
+                HorizontalLayout {
+                    spacing: 15px;
+                    LabelledInput { label: "Host IP"; value: "127.0.0.1"; horizontal-stretch: 1; }
+                    LabelledInput { label: "Port"; value: "2775"; horizontal-stretch: 1; }
+                }
+
+                // USER & PASS
+                HorizontalLayout {
+                    spacing: 15px;
+                    LabelledInput { label: "System ID"; placeholder: "Username"; horizontal-stretch: 1; }
+                    LabelledInput { label: "Password"; placeholder: "********"; input-type: password; horizontal-stretch: 1; }
+                }
+
+                // BIND MODE, SSL, & BUTTON
+                HorizontalLayout {
+                    spacing: 15px;
+                    // alignment: stretch; 
+                    
+                    // SSL Checkbox (Left aligned, fills space)
+                    VerticalLayout {
+                        alignment: center;
+                        padding-top: 20px;
+                        horizontal-stretch: 1;
+                        CheckBox { text: "Use SSL"; height: 32px; }
                     }
 
-                    Text { text: "Multipart Mode:"; color: #cccccc; vertical-alignment: center; }
-                    multipart_combo := ComboBox {
-                        model: ["UDH", "SAR", "Payload"];
-                        current-value: "UDH";
-                        width: 120px;
+                    // Bind Mode
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 4px;
+                        Text { text: "Bind Mode"; color: Palette.text-muted; font-size: 11px; }
+                        ComboBox {
+                            model: ["Transceiver", "Transmitter", "Receiver"];
+                            current-value: "Transceiver";
+                            height: 32px;
+                        }
+                    }
+
+                    // Connect Button
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: end;
+                        Button {
+                            text: root.is_connected ? "Disconnect" : "Connect";
+                            primary: !root.is_connected;
+                            height: 32px;
+                            clicked => {
+                                if (root.is_connected) { root.unbind(); }
+                                else { root.connect("127.0.0.1", "2775", "User", "Pass", "Transceiver"); } 
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- MESSAGING CARD ---
+            Card {
+                title: "Compose Message";
+
+                // SOURCE ROW
+                HorizontalLayout {
+                    spacing: 10px;
+                    LabelledInput { label: "Source Address"; placeholder: "Sender ID"; horizontal-stretch: 1; }
+                    LabelledInput { label: "TON"; value: "0"; width: 50px; }
+                    LabelledInput { label: "NPI"; value: "0"; width: 50px; }
+                }
+
+                // DEST ROW
+                HorizontalLayout {
+                    spacing: 10px;
+                    LabelledInput { label: "Destination Address"; placeholder: "+1234567890"; horizontal-stretch: 1; }
+                    LabelledInput { label: "TON"; value: "0"; width: 50px; }
+                    LabelledInput { label: "NPI"; value: "0"; width: 50px; }
+                }
+
+                Rectangle { height: 1px; background: Palette.border; } // Divider
+
+                // MESSAGE BODY
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "Message Content"; color: Palette.text-muted; font-size: 11px; }
+                    msg_body := LineEdit { 
+                        placeholder-text: "Type SMS content here...";
+                        height: 80px;
                     }
                 }
 
-                Text { text: "Message:"; color: #cccccc; }
-                msg_input := TextEdit {
-                    min-height: 100px; 
+                // OPTIONS ROW
+                HorizontalLayout {
+                    spacing: 10px;
+                    
+                    VerticalLayout {
+                        spacing: 4px; 
+                        horizontal-stretch: 1; // Reduced stretch
+                        Text { text: "Encoding"; color: Palette.text-muted; font-size: 11px; }
+                        ComboBox { model: ["GSM 7-bit", "Latin-1", "UCS-2"]; current-value: "GSM 7-bit"; height: 32px; width: 150px; }
+                    }
+                    
+                    LabelledInput { label: "Validity"; placeholder: "Default"; width: 150px; } // Fixed small width
+
+                    VerticalLayout {
+                        alignment: end;
+                        horizontal-stretch: 1; // Don't stretch
+                        CheckBox { text: "DLR"; checked: true; height: 32px; }
+                    }
                 }
 
                 Button {
-                    text: "Send SMS";
+                    text: "Send Message";
+                    height: 40px;
+                    primary: true;
                     clicked => {
-                        root.send_message(
-                            src_addr_input.text, 
-                            dest_addr_input.text, 
-                            msg_input.text,
-                            encoding_combo.current-value,
-                            multipart_combo.current-value
-                        );
+                        // Call root.send_message(...) here
                     }
                 }
             }
-        }
-        
-        // ... (Logs remain same) ...
-        GroupBox {
-            title: "Logs";
-            vertical-stretch: 1;
-            
-            ScrollView {
-                VerticalBox {
-                    for log in root.logs : Text {
-                        text: log;
-                        color: #aaaaaa;
-                        font-family: "monospace";
-                        wrap: word-wrap;
+
+            // --- TERMINAL / LOGS ---
+            Card {
+                title: "Transaction Logs";
+                VerticalLayout {
+                    Rectangle {
+                        background: #000000;
+                        border-radius: 4px;
+                        border-color: Palette.border;
+                        border-width: 1px;
+                        height: 150px;
+                        clip: true;
+
+                        ScrollView {
+                            viewport-y: self.viewport-height > self.height ? self.height - self.viewport-height : 0px;
+                            VerticalBox {
+                                alignment: start;
+                                spacing: 2px;
+                                padding: 8px;
+                                for log in root.logs : Text {
+                                    text: "> " + log;
+                                    color: #00ff00; // Terminal Green
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
                     }
                 }
             }
