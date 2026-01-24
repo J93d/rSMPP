@@ -59,6 +59,7 @@ component Card inherits Rectangle {
 // --- MAIN APPLICATION ---
 export component AppWindow inherits Window {
     title: "rSMPP Client";
+    icon: @image-url("../icon.png");
     min-width: 450px; 
     min-height: 700px;
     background: Palette.background;
@@ -190,17 +191,17 @@ export component AppWindow inherits Window {
                 // SOURCE ROW
                 HorizontalLayout {
                     spacing: 10px;
-                    LabelledInput { label: "Source Address"; placeholder: "Sender ID"; horizontal-stretch: 1; }
-                    LabelledInput { label: "TON"; value: "0"; width: 50px; }
-                    LabelledInput { label: "NPI"; value: "0"; width: 50px; }
+                    src_addr := LabelledInput { label: "Source Address"; placeholder: "Sender ID"; horizontal-stretch: 1; }
+                    src_ton := LabelledInput { label: "TON"; value: "0"; width: 50px; }
+                    src_npi := LabelledInput { label: "NPI"; value: "0"; width: 50px; }
                 }
 
                 // DEST ROW
                 HorizontalLayout {
                     spacing: 10px;
-                    LabelledInput { label: "Destination Address"; placeholder: "+1234567890"; horizontal-stretch: 1; }
-                    LabelledInput { label: "TON"; value: "0"; width: 50px; }
-                    LabelledInput { label: "NPI"; value: "0"; width: 50px; }
+                    dest_addr := LabelledInput { label: "Destination Address"; placeholder: "+1234567890"; horizontal-stretch: 1; }
+                    dest_ton := LabelledInput { label: "TON"; value: "0"; width: 50px; }
+                    dest_npi := LabelledInput { label: "NPI"; value: "0"; width: 50px; }
                 }
 
                 Rectangle { height: 1px; background: Palette.border; } // Divider
@@ -223,15 +224,15 @@ export component AppWindow inherits Window {
                         spacing: 4px; 
                         horizontal-stretch: 1; // Reduced stretch
                         Text { text: "Encoding"; color: Palette.text-muted; font-size: 11px; }
-                        ComboBox { model: ["GSM 7-bit", "Latin-1", "UCS-2"]; current-value: "GSM 7-bit"; height: 32px; width: 150px; }
+                        encoding_combo := ComboBox { model: ["GSM 7-bit", "Latin-1", "UCS-2"]; current-value: "GSM 7-bit"; height: 32px; width: 150px; }
                     }
                     
-                    LabelledInput { label: "Validity"; placeholder: "Default"; width: 150px; } // Fixed small width
+                    validity_input := LabelledInput { label: "Validity"; placeholder: "Default"; width: 150px; } // Fixed small width
 
                     VerticalLayout {
                         alignment: end;
                         horizontal-stretch: 1; // Don't stretch
-                        CheckBox { text: "DLR"; checked: true; height: 32px; }
+                        dlr_check := CheckBox { text: "DLR"; checked: true; height: 32px; }
                     }
                 }
 
@@ -240,7 +241,12 @@ export component AppWindow inherits Window {
                     height: 40px;
                     primary: true;
                     clicked => {
-                        // Call root.send_message(...) here
+                        root.send_message(
+                            src_addr.value, src_ton.value, src_npi.value,
+                            dest_addr.value, dest_ton.value, dest_npi.value,
+                            msg_body.text, encoding_combo.current-value, "UDH",
+                            "0", "0", validity_input.value, dlr_check.checked
+                        );
                     }
                 }
             }
