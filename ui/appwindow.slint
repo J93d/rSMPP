@@ -1,0 +1,139 @@
+import { Button, VerticalBox, LineEdit, TextEdit, ScrollView, HorizontalBox, GroupBox, StandardListView } from "std-widgets.slint";
+
+export component AppWindow inherits Window {
+    title: "rSMPP Client";
+    min-width: 800px;
+    min-height: 600px;
+    background: #1e1e1e; // Dark background
+
+    callback connect(string, string, string, string); // ip, port, system_id, password
+    callback send_message(string, string, string); // source, dest, message
+    
+    in property <string> connection_status: "Disconnected";
+    in property <bool> is_connected: false;
+    in property <[string]> logs: [];
+
+    VerticalBox {
+        padding: 20px;
+        spacing: 20px;
+
+        // Header
+        Text {
+            text: "rSMPP Client";
+            font-size: 24px;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        // Connection Panel
+        GroupBox {
+            title: "Connection Settings";
+            VerticalBox {
+                spacing: 10px;
+                
+                HorizontalBox {
+                    spacing: 10px;
+                    Text { text: "IP:"; color: #cccccc; vertical-alignment: center; }
+                    ip_input := LineEdit { 
+                        placeholder-text: "127.0.0.1";
+                        text: "127.0.0.1";
+                        width: 150px;
+                    }
+                    
+                    Text { text: "Port:"; color: #cccccc; vertical-alignment: center; }
+                    port_input := LineEdit { 
+                        placeholder-text: "2775";
+                        text: "2775";
+                        width: 80px;
+                    }
+                }
+
+                HorizontalBox {
+                    spacing: 10px;
+                    Text { text: "System ID:"; color: #cccccc; vertical-alignment: center; }
+                    sys_id_input := LineEdit { 
+                        placeholder-text: "User"; 
+                        width: 150px;
+                    }
+
+                    Text { text: "Password:"; color: #cccccc; vertical-alignment: center; }
+                    pass_input := LineEdit { 
+                        placeholder-text: "Password"; 
+                        input-type: password;
+                        width: 150px;
+                    }
+                }
+
+                HorizontalBox {
+                    Button {
+                        text: root.is_connected ? "Disconnect" : "Connect";
+                        primary: true;
+                        clicked => {
+                            root.connect(ip_input.text, port_input.text, sys_id_input.text, pass_input.text);
+                        }
+                    }
+                    
+                    Text {
+                        text: "Status: " + root.connection_status;
+                        color: root.is_connected ? #00ff00 : #ff0000;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // Messaging Panel
+        GroupBox {
+            title: "Send Message";
+            enabled: root.is_connected;
+            
+            VerticalBox {
+                spacing: 10px;
+
+                HorizontalBox {
+                    spacing: 10px;
+                    Text { text: "Source Addr:"; color: #cccccc; vertical-alignment: center; }
+                    src_addr_input := LineEdit { 
+                        placeholder-text: "SENDER";
+                        width: 150px;
+                    }
+
+                    Text { text: "Dest Addr:"; color: #cccccc; vertical-alignment: center; }
+                    dest_addr_input := LineEdit { 
+                        placeholder-text: "RECEIVER"; 
+                        width: 150px;
+                    }
+                }
+
+                Text { text: "Message:"; color: #cccccc; }
+                msg_input := TextEdit {
+                    min-height: 100px; 
+                }
+
+                Button {
+                    text: "Send SMS";
+                    clicked => {
+                        root.send_message(src_addr_input.text, dest_addr_input.text, msg_input.text);
+                    }
+                }
+            }
+        }
+
+        // Logs
+        GroupBox {
+            title: "Logs";
+            vertical-stretch: 1;
+            
+            ScrollView {
+                VerticalBox {
+                    for log in root.logs : Text {
+                        text: log;
+                        color: #aaaaaa;
+                        font-family: "monospace";
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+}

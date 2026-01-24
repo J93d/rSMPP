@@ -1,0 +1,14 @@
+[package]
+name = "rSMPP"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+slint = { version = "1.9", features = ["renderer-winit-skia"] }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1.0"
+rand = "0.8"
+thiserror = "1.0"
+
+[build-dependencies]
+slint-build = "1.9" # This compiles the .slint file during build
