@@ -333,8 +333,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                      if let Some(tx) = &tx_writer {
                         let enc_enum = match encoding.as_str() {
                             "GSM 7-bit" => Encoding::Gsm7Bit,
-                            "Latin-1 (8-bit)" => Encoding::Latin1,
-                            "UCS-2 (16-bit)" => Encoding::Ucs2,
+                            "Latin-1" => Encoding::Latin1,
+                            "UCS-2" => Encoding::Ucs2,
                             _ => Encoding::Gsm7Bit,
                         };
 
