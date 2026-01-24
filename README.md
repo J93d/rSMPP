@@ -2,8 +2,6 @@
 
 A modern, high-performance, and secure SMPP v3.4 client built with Rust and Slint UI.
 
-![rSMPP Client Screenshot](screenshot.png)
-
 ## 🚀 Key Features
 
 ### 🖥️ Modern User Interface
