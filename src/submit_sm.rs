@@ -81,6 +81,7 @@ impl From<u8> for NumericPlanIndicator {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SubmitSmResponse {
     pub command_status: u32,
     pub status_name: String,
