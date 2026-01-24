@@ -249,7 +249,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                         command_id::DELIVER_SM => {
                                                             match deliver_sm::deliver_sm_async(&buffer[..len]).await {
                                                                 Ok(result) => {
-                                                                     let _ = tx_ui_read.send(UiEvent::Log(format!("Recv DeliverSM: {:?} from {:?}", result.message, result.orig_addr))).await;
+                                                                    let mut log_msg = format!("DeliverSM From: {} To: {}", 
+                                                                        result.orig_addr.unwrap_or_default(), 
+                                                                        result.dest_addr.unwrap_or_default()
+                                                                    );
+                                                                    
+                                                                    if let Some(msg) = result.message {
+                                                                        log_msg.push_str(&format!(" Msg: \"{}\"", msg));
+                                                                    }
+                                                                    
+                                                                    if let (Some(id), Some(stat)) = (result.msg_id, result.msg_status) {
+                                                                        log_msg.push_str(&format!(" [DLR: ID={} Stat={}]", id, stat));
+                                                                    }
+                                                                    
+                                                                     let _ = tx_ui_read.send(UiEvent::Log(log_msg)).await;
                                                                 }
                                                                 Err(e) => { let _ = tx_ui_read.send(UiEvent::Log(format!("DeliverSM Parse Error: {}", e))).await; }
                                                             }

@@ -253,9 +253,9 @@ pub struct DeliverSMParsedResult {
     /// SIP Response to the parsed message
     pub deliversm_resp_bytes: Vec<u8>,
     /// Originator Address of the Message
-    pub orig_addr: Option<u64>,
+    pub orig_addr: Option<String>,
     /// Destination Address of the Message
-    pub dest_addr: Option<u64>,
+    pub dest_addr: Option<String>,
     /// Message received in response
     pub message: Option<String>,
     /// Message ID of SubmitSM received in response
@@ -303,8 +303,8 @@ pub async fn deliver_sm_async(buffer: &[u8]) -> Result<DeliverSMParsedResult, &'
             // Create success response
             match create_deliver_sm_resp_async(deliver_sm.sequence_number).await {
                 Ok(response) => (response,
-                    Some(deliver_sm.originator_address).and_then(|m| m.as_str().parse::<u64>().ok()),
-                    Some(deliver_sm.destination_address).and_then(|m| m.as_str().parse::<u64>().ok()),
+                    Some(deliver_sm.originator_address),
+                    Some(deliver_sm.destination_address),
                     Some(deliver_sm.message),
                     Some(deliver_sm.returned_msg_id.to_string()),
                     Some(deliver_sm.returned_msg_status)),
