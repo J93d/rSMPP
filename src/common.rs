@@ -2,6 +2,7 @@
 pub const SMPP_INTERFACE_VERSION: u8 = 0x34;
 
 /// Address Type of Number (TON)
+#[allow(dead_code)]
 pub mod ton {
     pub const UNKNOWN: u8 = 0x00;
     pub const INTERNATIONAL: u8 = 0x01;
