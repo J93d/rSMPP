@@ -58,7 +58,7 @@ cargo run --release
 -   **TLS**: tokio-rustls / rustls
 
 ## 📝 License
-MIT License
+Apache 2.0
 
 ## 🤖 Disclaimer
 This project was co-developed with **Google Gemini**, an advanced AI assistant, which generated the majority of the code, UI design, and documentation based on user requirements and prompts.
