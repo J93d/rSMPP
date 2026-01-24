@@ -127,59 +127,7 @@ impl Default for SubmitSmParams {
     }
 }
 
-pub struct SubmitSmBuilder {
-    params: SubmitSmParams,
-}
-
-impl SubmitSmBuilder {
-    pub fn new() -> Self {
-        Self {
-            params: SubmitSmParams::default(),
-        }
-    }
-
-    pub fn source(mut self, ton: TypeOfNumber, npi: NumericPlanIndicator, addr: String) -> Self {
-        self.params.source_ton = ton;
-        self.params.source_npi = npi;
-        self.params.source_addr = addr;
-        self
-    }
-
-    pub fn destination(mut self, ton: TypeOfNumber, npi: NumericPlanIndicator, addr: String) -> Self {
-        self.params.dest_ton = ton;
-        self.params.dest_npi = npi;
-        self.params.destination_addr = addr;
-        self
-    }
-
-    pub fn message(mut self, msg: Vec<u8>) -> Self {
-        self.params.message = msg;
-        self
-    }
-
-    pub fn esm_class(mut self, class: u8) -> Self {
-        self.params.esm_class = class;
-        self
-    }
-    
-    pub fn data_coding(mut self, coding: u8) -> Self {
-        self.params.data_coding = coding;
-        self
-    }
-    
-    pub fn add_tlv(mut self, tag: u16, value: Vec<u8>) -> Self {
-        self.params.optional_params.push(Tlv {
-            tag,
-            length: value.len() as u16,
-            value,
-        });
-        self
-    }
-
-    pub fn build(self) -> SubmitSmParams {
-        self.params
-    }
-}
+// SubmitSmBuilder removed as it was unused.
 
 pub struct SubmitSm;
 

@@ -7,19 +7,27 @@ mod deliver_sm;
 
 use common::command_id;
 use bind::{Bind, BindBuilder, BindMode};
-use submit_sm::{SubmitSm, Encoding, MultipartMode}; // NumericPlanIndicator, TypeOfNumber removed
+use submit_sm::{SubmitSm, Encoding, MultipartMode};
 use enquire_link::EnquireLink;
 
 use slint::ComponentHandle;
 use slint::{Model, SharedString, VecModel}; 
 use std::rc::Rc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::sync::Arc; // For Arc
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
 use tokio::select;
 use rand::Rng;
 
+// TLS Imports
+use tokio_rustls::TlsConnector;
+use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
+use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use tokio_rustls::rustls::client::danger::{ServerCertVerified, ServerCertVerifier, HandshakeSignatureValid};
+use tokio_rustls::rustls::DigitallySignedStruct;
+use tokio_rustls::rustls::SignatureScheme;
 
 slint::include_modules!();
 
@@ -29,8 +37,7 @@ enum UiEvent {
 }
 
 enum Cmd {
-    Connect { ip: String, port: String, system_id: String, password: String, bind_mode: String },
-    Disconnect,
+    Connect { ip: String, port: String, system_id: String, password: String, bind_mode: String, use_ssl: bool },
     Unbind,
     SendMessage { 
         source: String, src_ton: String, src_npi: String,
@@ -43,6 +50,46 @@ enum Cmd {
 enum WriterCmd {
     Write(Vec<u8>),
     Close,
+}
+
+// Dangerous Verifier to skip certificate validation
+#[derive(Debug)]
+struct DangerousVerifier;
+
+impl ServerCertVerifier for DangerousVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        // Accept Any Certificate
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        tokio_rustls::rustls::crypto::ring::default_provider().signature_verification_algorithms.supported_schemes()
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -83,26 +130,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Main Logic Task
     rt.spawn(async move {
         let mut tx_writer: Option<mpsc::Sender<WriterCmd>> = None;
-        let mut connection_handle: Option<tokio::task::JoinHandle<()>> = None;
 
         while let Some(cmd) = rx_cmd.recv().await {
             match cmd {
-                Cmd::Connect { ip, port, system_id, password, bind_mode } => {
+                Cmd::Connect { ip, port, system_id, password, bind_mode, use_ssl } => {
                     let addr = format!("{}:{}", ip, port);
-                    match TcpStream::connect(&addr).await {
-                        Ok(stream) => {
-                            let _ = tx_ui.send(UiEvent::Log(format!("Connected to {}", addr))).await;
+                    
+                    // --- CONNECTION LOGIC ---
+                    let result: Result<(Box<dyn AsyncRead + Unpin + Send>, Box<dyn AsyncWrite + Unpin + Send>), Box<dyn std::error::Error + Send + Sync>> = async {
+                        let tcp_stream = TcpStream::connect(&addr).await?;
+                        
+                        if use_ssl {
+                            // Setup TLS with Dangerous Verifier
+                            let root_store = RootCertStore::empty();
+                            let mut config = ClientConfig::builder_with_provider(Arc::new(tokio_rustls::rustls::crypto::ring::default_provider()))
+                                .with_protocol_versions(&[&tokio_rustls::rustls::version::TLS12, &tokio_rustls::rustls::version::TLS13])?
+                                .with_root_certificates(root_store)
+                                .with_no_client_auth();
+                            
+                            config.dangerous().set_certificate_verifier(Arc::new(DangerousVerifier));
+                            
+                            let connector = TlsConnector::from(Arc::new(config));
+                            
+                            // Use IP as ServerName or fallback
+                            let domain = ServerName::try_from(ip.as_str())
+                                .or_else(|_| ServerName::try_from("example.com"))?;
+                                
+                            let tls_stream = connector.connect(domain.to_owned(), tcp_stream).await?;
+                            let (r, w) = tokio::io::split(tls_stream);
+                            Ok((Box::new(r) as Box<dyn AsyncRead + Unpin + Send>, Box::new(w) as Box<dyn AsyncWrite + Unpin + Send>))
+                        } else {
+                            let (r, w) = tcp_stream.into_split();
+                            Ok((Box::new(r) as Box<dyn AsyncRead + Unpin + Send>, Box::new(w) as Box<dyn AsyncWrite + Unpin + Send>))
+                        }
+                    }.await;
+
+                    match result {
+                        Ok((mut reader, mut writer)) => {
+                            let _ = tx_ui.send(UiEvent::Log(format!("Connected to {} (SSL: {})", addr, use_ssl))).await;
                              let _ = tx_ui.send(UiEvent::ConnectionStatus("Connected".to_string(), true)).await;
                             
-                            let (mut reader, mut writer) = stream.into_split();
                             let (tx_w, mut rx_w) = mpsc::channel::<WriterCmd>(100);
                             tx_writer = Some(tx_w.clone());
 
                             let tx_ui_clone = tx_ui.clone();
                             let connection_task = tokio::spawn(async move {
                                 let mut interval = time::interval(Duration::from_secs(5));
-                                // First tick returns immediately, so skip or use wait
-                                
                                 loop {
                                     select! {
                                         // Writer Loop
@@ -121,22 +194,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         
                                         // Heartbeat Loop
                                         _ = interval.tick() => {
-                                            // Send EnquireLink
                                             let pdu = EnquireLink::create_pdu();
                                              if let Err(e) = writer.write_all(&pdu).await {
                                                  let _ = tx_ui_clone.send(UiEvent::Log(format!("Heartbeat Error: {}", e))).await;
                                                  let _ = tx_ui_clone.send(UiEvent::ConnectionStatus("Disconnected".to_string(), false)).await;
                                                  break;
                                              }
-                                             // let _ = tx_ui_clone.send(UiEvent::Log("Sent EnquireLink".to_string())).await; 
-                                             // Commented out to avoid spamming logs, enable if needed for debug
                                         }
-
-                                        // Reader Loop (Simple Check)
-                                        // Since we can't easily select! on read_exact without cancellation safety issues or buf management...
-                                        // ...actually, TcpStream splitting allows concurrent read/write tasks.
-                                        // But here we put them in one select! loop? No, reader needs its own task or future.
-                                        // Let's spawn reader separately to avoid select! issues with reading.
                                     }
                                 }
                             });
@@ -195,7 +259,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                             let _ = tx_ui_read.send(UiEvent::ConnectionStatus("Disconnected".to_string(), false)).await;
                                                         },
                                                         command_id::ENQUIRE_LINK_RESP => {
-                                                             // let _ = tx_ui_read.send(UiEvent::Log("Recv EnquireLinkResp".to_string())).await;
+                                                             // Only log if verbose
                                                         },
                                                         _ => {
                                                             let _ = tx_ui_read.send(UiEvent::Log(format!("Recv PDU: CmdID 0x{:08X}", cmd_id))).await;
@@ -219,7 +283,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             });
                             
-                            connection_handle = Some(connection_task);
+                            // Connection task spawned above
 
                             // Send Bind
                             let mode_enum = match bind_mode.as_str() {
@@ -251,16 +315,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         
                         let _ = tx.send(WriterCmd::Write(pdu)).await;
                      }
-                }
-                Cmd::Disconnect => {
-                    if let Some(mut tx) = tx_writer.take() {
-                        let _ = tx.send(WriterCmd::Close).await;
-                    }
-                    if let Some(handle) = connection_handle.take() {
-                        handle.abort();
-                    }
-                     let _ = tx_ui.send(UiEvent::Log("Disconnected".to_string())).await;
-                     let _ = tx_ui.send(UiEvent::ConnectionStatus("Disconnected".to_string(), false)).await;
                 }
                 Cmd::SendMessage { source, src_ton, src_npi, dest, dest_ton, dest_npi, message, encoding, mode, pid, dcs, validity, dlr } => {
                      if let Some(tx) = &tx_writer {
@@ -305,13 +359,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // UI Callbacks
     let tx_cmd_connect = tx_cmd.clone();
-    main_window.on_connect(move |ip, port, sys_id, pass, bind_mode| {
+    main_window.on_connect(move |ip, port, sys_id, pass, bind_mode, use_ssl| {
         let _ = tx_cmd_connect.blocking_send(Cmd::Connect {
             ip: ip.into(),
             port: port.into(),
             system_id: sys_id.into(),
             password: pass.into(),
             bind_mode: bind_mode.into(),
+            use_ssl // Pass boolean
         });
     });
 

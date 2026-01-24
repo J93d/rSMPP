@@ -15,7 +15,7 @@ global Palette {
 // --- REUSABLE COMPONENT: INPUT FIELD WITH LABEL ---
 component LabelledInput inherits VerticalLayout {
     in property <string> label;
-    in property <string> value <=> input.text;
+    in-out property <string> value <=> input.text;
     in property <string> placeholder;
     in property <InputType> input-type: text;
     
@@ -64,7 +64,7 @@ export component AppWindow inherits Window {
     background: Palette.background;
 
     // --- CALLBACKS ---
-    callback connect(string, string, string, string, string); 
+    callback connect(string, string, string, string, string, bool); // ip, port, system_id, password, bind_mode, use_ssl
     callback unbind(); 
     callback send_message(
         string, string, string, // source
@@ -151,7 +151,7 @@ export component AppWindow inherits Window {
                         alignment: center;
                         padding-top: 20px;
                         horizontal-stretch: 1;
-                        CheckBox { text: "Use SSL"; height: 32px; }
+                        ssl_check := CheckBox { text: "Use TLS"; height: 32px; }
                     }
 
                     // Bind Mode
@@ -176,7 +176,7 @@ export component AppWindow inherits Window {
                             height: 32px;
                             clicked => {
                                 if (root.is_connected) { root.unbind(); }
-                                else { root.connect("127.0.0.1", "2775", "User", "Pass", "Transceiver"); } 
+                                else { root.connect("127.0.0.1", "2775", "User", "Pass", "Transceiver", ssl_check.checked); } 
                             }
                         }
                     }
