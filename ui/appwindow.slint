@@ -130,15 +130,15 @@ export component AppWindow inherits Window {
                 // HOST & PORT
                 HorizontalLayout {
                     spacing: 15px;
-                    LabelledInput { label: "Host IP"; value: "127.0.0.1"; horizontal-stretch: 1; }
-                    LabelledInput { label: "Port"; value: "2775"; horizontal-stretch: 1; }
+                    host_input := LabelledInput { label: "Host IP"; value: "127.0.0.1"; horizontal-stretch: 1; }
+                    port_input := LabelledInput { label: "Port"; value: "2775"; horizontal-stretch: 1; }
                 }
 
                 // USER & PASS
                 HorizontalLayout {
                     spacing: 15px;
-                    LabelledInput { label: "System ID"; placeholder: "Username"; horizontal-stretch: 1; }
-                    LabelledInput { label: "Password"; placeholder: "********"; input-type: password; horizontal-stretch: 1; }
+                    sys_id_input := LabelledInput { label: "System ID"; placeholder: "Username"; horizontal-stretch: 1; }
+                    pass_input := LabelledInput { label: "Password"; placeholder: "********"; input-type: password; horizontal-stretch: 1; }
                 }
 
                 // BIND MODE, SSL, & BUTTON
@@ -159,7 +159,7 @@ export component AppWindow inherits Window {
                         horizontal-stretch: 1;
                         spacing: 4px;
                         Text { text: "Bind Mode"; color: Palette.text-muted; font-size: 11px; }
-                        ComboBox {
+                        bind_mode_combo := ComboBox {
                             model: ["Transceiver", "Transmitter", "Receiver"];
                             current-value: "Transceiver";
                             height: 32px;
@@ -176,7 +176,7 @@ export component AppWindow inherits Window {
                             height: 32px;
                             clicked => {
                                 if (root.is_connected) { root.unbind(); }
-                                else { root.connect("127.0.0.1", "2775", "User", "Pass", "Transceiver", ssl_check.checked); } 
+                                else { root.connect(host_input.value, port_input.value, sys_id_input.value, pass_input.value, bind_mode_combo.current-value, ssl_check.checked); } 
                             }
                         }
                     }
