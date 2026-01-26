@@ -2,8 +2,6 @@
 
 A modern, high-performance, and secure SMPP v3.4 client built with Rust and Slint UI.
 
-![rSMPP Client Screenshot](screenshot.png)
-
 ## 🚀 Key Features
 
 ### 🖥️ Modern User Interface
@@ -58,7 +56,7 @@ cargo run --release
 -   **TLS**: tokio-rustls / rustls
 
 ## 📝 License
-MIT License
+Apache 2.0
 
 ## 🤖 Disclaimer
 This project was co-developed with **Google Gemini**, an advanced AI assistant, which generated the majority of the code, UI design, and documentation based on user requirements and prompts.
