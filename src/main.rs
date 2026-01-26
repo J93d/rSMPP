@@ -207,6 +207,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             
                             // Spawn Reader separately
                             let tx_ui_read = tx_ui.clone();
+                            let tx_writer_read = tx_writer.clone(); // Clone writer for reader task
+                            
                             tokio::spawn(async move {
                                 let mut buffer = vec![0u8; 1024];
                                 loop {
@@ -247,7 +249,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                             }
                                                         },
                                                         command_id::DELIVER_SM => {
-                                                            match deliver_sm::deliver_sm_async(&buffer[..len]).await {
+                                                        match deliver_sm::deliver_sm_async(&buffer[..len]).await {
                                                                 Ok(result) => {
                                                                     let mut log_msg = format!("DeliverSM From: {} To: {}", 
                                                                         result.orig_addr.unwrap_or_default(), 
@@ -263,6 +265,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                                     }
                                                                     
                                                                      let _ = tx_ui_read.send(UiEvent::Log(log_msg)).await;
+                                                                     
+                                                                     // Send Response
+                                                                     if let Some(tx_w) = &tx_writer_read {
+                                                                         if let Err(e) = tx_w.send(WriterCmd::Write(result.deliversm_resp_bytes)).await {
+                                                                             let _ = tx_ui_read.send(UiEvent::Log(format!("Failed to send DeliverSmResp: {}", e))).await;
+                                                                         }
+                                                                     }
                                                                 }
                                                                 Err(e) => { let _ = tx_ui_read.send(UiEvent::Log(format!("DeliverSM Parse Error: {}", e))).await; }
                                                             }

@@ -26,10 +26,10 @@ pub struct DeliverSm {
     pub destination_address: String,
     /// The message content
     pub message: String,
-    /// The msg_id of SubmitSM
-    pub returned_msg_id: u64,
-    /// The status of SubmitSM
-    pub returned_msg_status: String,
+    /// The msg_id of SubmitSM (Optional)
+    pub returned_msg_id: Option<u64>,
+    /// The status of SubmitSM (Optional)
+    pub returned_msg_status: Option<String>,
 }
 
 /// Errors that can occur when parsing a deliver_sm PDU
@@ -151,24 +151,24 @@ pub async fn parse_deliver_sm_async(buffer: &[u8]) -> DeliverSmResult<DeliverSm>
     let message = String::from_utf8(buffer[message_start..message_end].to_vec())
         .map_err(|_| DeliverSmError::InvalidMessageContent)?;
 
-    let returned_msg_id: u64 = MSG_ID.captures(&message)
-    .and_then(|caps| caps.get(1))
+    let returned_msg_id: Option<u64> = MSG_ID.captures(&message)
+    .and_then(|caps| caps.get(0)) // caps.get(0) is the entire match, but regex is simple `id:\d+`
     .and_then(|m| {
-        m.as_str()
+         m.as_str()
         .split(':')
         .nth(1)
         .and_then(|s| s.trim().parse::<u64>().ok())
-    }).ok_or(DeliverSmError::InvalidMessageContent)?;
+    });
     
-    let returned_msg_status = MSG_STATUS.captures(&message)
-    .and_then(|caps| caps.get(1))
+    let returned_msg_status: Option<String> = MSG_STATUS.captures(&message)
+    .and_then(|caps| caps.get(0))
     .map(|m| {
         m.as_str()
         .split_once(':')
         .map(|(_,second)| second)
         .unwrap_or(m.as_str())
         .to_string()
-    }).ok_or(DeliverSmError::InvalidMessageContent)?;
+    });
     
     Ok(DeliverSm {
         sequence_number,
@@ -285,20 +285,6 @@ pub struct DeliverSMParsedResult {
 pub async fn deliver_sm_async(buffer: &[u8]) -> Result<DeliverSMParsedResult, &'static str> {
     let (deliversm_resp_bytes, orig_addr, dest_addr, message, returned_msg_id, msg_status) = match parse_deliver_sm_async(buffer).await {
         Ok(deliver_sm) => {
-            // Successfully parsed - log information and create success response
-            println!("DeliverSM Received");
-            println!(
-                "Originator Address: {},
-                Destination Address: {},
-                Message: {},
-                Message ID: {},
-                Message Status: {}", 
-                deliver_sm.originator_address, 
-                deliver_sm.destination_address, 
-                deliver_sm.message,
-                deliver_sm.returned_msg_id,
-                deliver_sm.returned_msg_status
-            );
             
             // Create success response
             match create_deliver_sm_resp_async(deliver_sm.sequence_number).await {
@@ -306,8 +292,8 @@ pub async fn deliver_sm_async(buffer: &[u8]) -> Result<DeliverSMParsedResult, &'
                     Some(deliver_sm.originator_address),
                     Some(deliver_sm.destination_address),
                     Some(deliver_sm.message),
-                    Some(deliver_sm.returned_msg_id.to_string()),
-                    Some(deliver_sm.returned_msg_status)),
+                    deliver_sm.returned_msg_id.map(|id| id.to_string()),
+                    deliver_sm.returned_msg_status),
                 Err(_) => {
                     // Fallback to generic NACK if we can't create response
                     (create_generic_nack_async(0).await.unwrap_or_else(|_| vec![0u8; 16]),None,None,None,None,None)
@@ -316,7 +302,6 @@ pub async fn deliver_sm_async(buffer: &[u8]) -> Result<DeliverSMParsedResult, &'
         }
         Err(_) => {
             // Parsing failed - send generic NACK
-            println!("DeliverSM could not be parsed. Sending generic Nack");
             (create_generic_nack_async(0).await.unwrap_or_else(|_| vec![0u8; 16]),None,None,None,None,None)
         }
     };
