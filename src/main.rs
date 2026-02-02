@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 // mod common; // Removed as we use smpp-codec
 // We will largely replace local common with smpp-codec types.
@@ -34,9 +34,8 @@ use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
 // SMPP Codec Imports
 use smpp_codec::common::{
     BindMode, CMD_BIND_RECEIVER_RESP, CMD_BIND_TRANSCEIVER_RESP, CMD_BIND_TRANSMITTER_RESP,
-    CMD_DELIVER_SM, CMD_SUBMIT_SM_RESP, CMD_UNBIND_RESP,
-    CMD_ENQUIRE_LINK, CMD_ENQUIRE_LINK_RESP,
-    Ton, Npi
+    CMD_DELIVER_SM, CMD_ENQUIRE_LINK, CMD_ENQUIRE_LINK_RESP, CMD_SUBMIT_SM_RESP, CMD_UNBIND_RESP,
+    Npi, Ton,
 };
 use smpp_codec::pdus::{
     BindRequest, BindResponse, DeliverSmRequest, DeliverSmResponse, EnquireLinkRequest,
@@ -166,24 +165,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             match cmd {
                 Cmd::Connect { ip, port, system_id, password, bind_mode, use_ssl } => {
                     let addr = format!("{}:{}", ip, port);
-                    
+
                     let result: Result<(Box<dyn AsyncRead + Unpin + Send>, Box<dyn AsyncWrite + Unpin + Send>), Box<dyn std::error::Error + Send + Sync>> = async {
                         let tcp_stream = TcpStream::connect(&addr).await?;
-                        
+
                         if use_ssl {
                             let root_store = RootCertStore::empty();
                             let mut config = ClientConfig::builder_with_provider(Arc::new(tokio_rustls::rustls::crypto::ring::default_provider()))
                                 .with_protocol_versions(&[&tokio_rustls::rustls::version::TLS12, &tokio_rustls::rustls::version::TLS13])?
                                 .with_root_certificates(root_store)
                                 .with_no_client_auth();
-                            
+
                             config.dangerous().set_certificate_verifier(Arc::new(DangerousVerifier));
-                            
+
                             let connector = TlsConnector::from(Arc::new(config));
-                            
+
                             let domain = ServerName::try_from(ip.as_str())
                                 .or_else(|_| ServerName::try_from("example.com"))?;
-                                
+
                             let tls_stream = connector.connect(domain.to_owned(), tcp_stream).await?;
                             let (r, w) = tokio::io::split(tls_stream);
                             Ok((Box::new(r) as Box<dyn AsyncRead + Unpin + Send>, Box::new(w) as Box<dyn AsyncWrite + Unpin + Send>))
@@ -197,7 +196,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Ok((mut reader, mut writer)) => {
                             let _ = tx_ui.send(UiEvent::Log(format!("Connected to {} (SSL: {})", addr, use_ssl))).await;
                              let _ = tx_ui.send(UiEvent::ConnectionStatus("Connected".to_string(), true)).await;
-                            
+
                             let (tx_w, mut rx_w) = mpsc::channel::<WriterCmd>(100);
                             tx_writer = Some(tx_w.clone());
 
@@ -233,11 +232,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
                             });
-                            
+
                             // Reader Task
                             let tx_ui_read = tx_ui.clone();
-                            let tx_writer_read = tx_writer.clone(); 
-                            
+                            let tx_writer_read = tx_writer.clone();
+
                             tokio::spawn(async move {
                                 let mut buffer = vec![0u8; 1024];
                                 loop {
@@ -245,22 +244,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     match reader.read_exact(&mut len_buf).await {
                                         Ok(_) => {
                                             let len = u32::from_be_bytes(len_buf) as usize;
-                                            if !(4..=65536).contains(&len) { 
+                                            if !(4..=65536).contains(&len) {
                                                 let _ = tx_ui_read.send(UiEvent::Log(format!("Invalid PDU length: {}", len))).await;
                                                 break;
                                             }
-                                            
+
                                             if buffer.len() < len {
                                                 buffer.resize(len, 0);
                                             }
                                             buffer[0..4].copy_from_slice(&len_buf);
-                                            
+
                                             match reader.read_exact(&mut buffer[4..len]).await {
                                                 Ok(_) => {
                                                     let cmd_id = u32::from_be_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
                                                     match cmd_id {
-                                                        CMD_BIND_RECEIVER_RESP | 
-                                                        CMD_BIND_TRANSMITTER_RESP | 
+                                                        CMD_BIND_RECEIVER_RESP |
+                                                        CMD_BIND_TRANSMITTER_RESP |
                                                         CMD_BIND_TRANSCEIVER_RESP => {
                                                             match BindResponse::decode(&buffer[..len]) {
                                                                 Ok(resp) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Bind Resp: {} ({})", resp.status_description, resp.command_status))).await; }
@@ -278,13 +277,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                                 Ok(req) => {
                                                                     let short_msg = String::from_utf8_lossy(&req.short_message).into_owned();
                                                                     let mut log_msg = format!("DeliverSM From: {} To: {}", req.source_addr, req.dest_addr);
-                                                                    
+
                                                                     // Simple check for DLR based on esm_class or just content
                                                                     // In logic, we just log "Msg: ..."
                                                                     log_msg.push_str(&format!(" Msg: \"{}\"", short_msg));
 
                                                                     let _ = tx_ui_read.send(UiEvent::Log(log_msg)).await;
-                                                                    
+
                                                                     // Send Response
                                                                     let resp = DeliverSmResponse::new(req.sequence_number, "ESME_ROK");
                                                                     let mut pdu = Vec::new();
@@ -323,7 +322,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                 }
                             });
-                            
+
                             // Send Bind
                             let mode_enum = match bind_mode.as_str() {
                                 "Transmitter" => BindMode::Transmitter,
@@ -331,19 +330,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 "Transceiver" => BindMode::Transceiver,
                                 _ => BindMode::Transceiver,
                             };
-                            
+
                             let mut pdu = Vec::new();
                             let req = BindRequest::new(
-                                rand::thread_rng().gen_range(1..10000), 
-                                mode_enum, 
-                                system_id, 
+                                rand::thread_rng().gen_range(1..10000),
+                                mode_enum,
+                                system_id,
                                 password
                             );
-                            
+
                             // Handle interface version if needed, BindRequest might have builder or fields.
-                            // smpp-codec BindRequest::new usually sets basics. 
+                            // smpp-codec BindRequest::new usually sets basics.
                             // Assuming `new` is sufficient based on README.
-                            
+
                             if req.encode(&mut pdu).is_ok() {
                                 let _ = tx_writer.as_ref().unwrap().send(WriterCmd::Write(pdu)).await;
                             }
@@ -387,12 +386,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                                 for (i, part) in parts.into_iter().enumerate() {
                                      let mut req = SubmitSmRequest::new(
-                                         seq_num, 
-                                         source.clone(), 
-                                         dest.clone(), 
+                                         seq_num,
+                                         source.clone(),
+                                         dest.clone(),
                                          part
                                      );
-                                     
+
                                      // Set fields
                                      req.data_coding = dcs.parse().unwrap_or(data_coding_auto);
                                      if let Ok(pid_val) = pid.parse() { req.protocol_id = pid_val; }
@@ -401,7 +400,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                      req.source_addr_npi = Npi::from(src_npi.parse::<u8>().unwrap_or(0));
                                      req.dest_addr_ton = Ton::from(dest_ton.parse::<u8>().unwrap_or(0));
                                      req.dest_addr_npi = Npi::from(dest_npi.parse::<u8>().unwrap_or(0));
-                                     
+
                                      // Validity
                                      req.validity_period = validity.clone();
                                      req.registered_delivery = if dlr { 1 } else { 0 };
