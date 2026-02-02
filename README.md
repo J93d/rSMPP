@@ -17,6 +17,7 @@ A modern, high-performance, and secure SMPP v3.4 client built with Rust and Slin
 -   **Graceful Disconnect**: Dedicated Unbind support for clean session termination.
 
 ### 📨 Advanced Messaging
+-   **Powered by**: `smpp-codec` (Comprehensive PDU library)
 -   **Encoding Support**: 
     -   **GSM 7-bit**: Standard SMS encoding (basic + extended charset).
     -   **Latin-1 (8-bit)**: For binary or Western European languages.
@@ -54,6 +55,7 @@ cargo run --release
 -   **UI Framework**: [Slint](https://slint.dev/)
 -   **Async Runtime**: Tokio
 -   **TLS**: tokio-rustls / rustls
+-   **Protocol**: smpp-codec
 
 ## 📝 License
 Apache 2.0

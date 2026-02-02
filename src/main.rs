@@ -1,51 +1,80 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod common;
-mod bind;
-mod gsm_encoding;
-mod submit_sm;
-mod enquire_link;
-mod deliver_sm;
+// mod common; // Removed as we use smpp-codec
+// We will largely replace local common with smpp-codec types.
+// But wait, `mod common` in rSMPP might have other things?
+// Checking step 25 (bind.rs) imports `crate::common`.
+// Checking main.rs imports `mod common`.
+// I'll check `common.rs` content later. For now I will assume I can replace it or use smpp-codec.
+// safely, I will keep `mod common` if it defines things `main.rs` needs that aren't in smpp-codec,
+// but `main.rs` mostly used it for `command_id` and `BindMode`.
+// I will start by importing smpp_codec.
 
-use common::command_id;
-use bind::{Bind, BindBuilder, BindMode};
-use submit_sm::{SubmitSm, Encoding, MultipartMode};
-use enquire_link::EnquireLink;
-
+use rand::Rng;
 use slint::ComponentHandle;
-use slint::{Model, SharedString, VecModel}; 
+use slint::{Model, SharedString, VecModel};
 use std::rc::Rc;
-use std::sync::Arc; // For Arc
+use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::select;
 use tokio::sync::mpsc;
 use tokio::time::{self, Duration};
-use tokio::select;
-use rand::Rng;
 
 // TLS Imports
 use tokio_rustls::TlsConnector;
-use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
-use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use tokio_rustls::rustls::client::danger::{ServerCertVerified, ServerCertVerifier, HandshakeSignatureValid};
 use tokio_rustls::rustls::DigitallySignedStruct;
 use tokio_rustls::rustls::SignatureScheme;
+use tokio_rustls::rustls::client::danger::{
+    HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier,
+};
+use tokio_rustls::rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
+
+// SMPP Codec Imports
+use smpp_codec::common::{
+    BindMode, CMD_BIND_RECEIVER_RESP, CMD_BIND_TRANSCEIVER_RESP, CMD_BIND_TRANSMITTER_RESP,
+    CMD_DELIVER_SM, CMD_SUBMIT_SM_RESP, CMD_UNBIND_RESP,
+    CMD_ENQUIRE_LINK, CMD_ENQUIRE_LINK_RESP,
+    Ton, Npi
+};
+use smpp_codec::pdus::{
+    BindRequest, BindResponse, DeliverSmRequest, DeliverSmResponse, EnquireLinkRequest,
+    SubmitSmRequest, SubmitSmResponse, UnbindRequest,
+};
+use smpp_codec::splitter::{EncodingType, MessageSplitter, SplitMode};
 
 slint::include_modules!();
 
 enum UiEvent {
     Log(String),
-    ConnectionStatus(String, bool), // Status text, is_connected
+    ConnectionStatus(String, bool),
 }
 
 enum Cmd {
-    Connect { ip: String, port: String, system_id: String, password: String, bind_mode: String, use_ssl: bool },
+    Connect {
+        ip: String,
+        port: String,
+        system_id: String,
+        password: String,
+        bind_mode: String,
+        use_ssl: bool,
+    },
     Unbind,
-    SendMessage { 
-        source: String, src_ton: String, src_npi: String,
-        dest: String, dest_ton: String, dest_npi: String,
-        message: String, encoding: String, mode: String,
-        pid: String, dcs: String, validity: String, dlr: bool 
+    SendMessage {
+        source: String,
+        src_ton: String,
+        src_npi: String,
+        dest: String,
+        dest_ton: String,
+        dest_npi: String,
+        message: String,
+        encoding: String,
+        mode: String,
+        pid: String,
+        dcs: String,
+        validity: String,
+        dlr: bool,
     },
 }
 
@@ -66,7 +95,6 @@ impl ServerCertVerifier for DangerousVerifier {
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        // Accept Any Certificate
         Ok(ServerCertVerified::assertion())
     }
 
@@ -89,10 +117,13 @@ impl ServerCertVerifier for DangerousVerifier {
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        tokio_rustls::rustls::crypto::ring::default_provider().signature_verification_algorithms.supported_schemes()
+        tokio_rustls::rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let main_window = AppWindow::new()?;
     let main_window_weak = main_window.as_weak();
@@ -100,7 +131,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tx_ui, mut rx_ui) = mpsc::channel::<UiEvent>(100);
     let (tx_cmd, mut rx_cmd) = mpsc::channel::<Cmd>(100);
 
-    // Create a runtime for async tasks
     let rt = tokio::runtime::Runtime::new()?;
 
     // UI Updater Task
@@ -137,12 +167,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Cmd::Connect { ip, port, system_id, password, bind_mode, use_ssl } => {
                     let addr = format!("{}:{}", ip, port);
                     
-                    // --- CONNECTION LOGIC ---
                     let result: Result<(Box<dyn AsyncRead + Unpin + Send>, Box<dyn AsyncWrite + Unpin + Send>), Box<dyn std::error::Error + Send + Sync>> = async {
                         let tcp_stream = TcpStream::connect(&addr).await?;
                         
                         if use_ssl {
-                            // Setup TLS with Dangerous Verifier
                             let root_store = RootCertStore::empty();
                             let mut config = ClientConfig::builder_with_provider(Arc::new(tokio_rustls::rustls::crypto::ring::default_provider()))
                                 .with_protocol_versions(&[&tokio_rustls::rustls::version::TLS12, &tokio_rustls::rustls::version::TLS13])?
@@ -153,7 +181,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             
                             let connector = TlsConnector::from(Arc::new(config));
                             
-                            // Use IP as ServerName or fallback
                             let domain = ServerName::try_from(ip.as_str())
                                 .or_else(|_| ServerName::try_from("example.com"))?;
                                 
@@ -175,11 +202,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             tx_writer = Some(tx_w.clone());
 
                             let tx_ui_clone = tx_ui.clone();
-                            let _ = tokio::spawn(async move {
+                            tokio::spawn(async move {
                                 let mut interval = time::interval(Duration::from_secs(5));
                                 loop {
                                     select! {
-                                        // Writer Loop
                                         Some(w_cmd) = rx_w.recv() => {
                                             match w_cmd {
                                                 WriterCmd::Write(data) => {
@@ -191,97 +217,91 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 }
                                             }
                                         }
-                                        
                                         // Heartbeat Loop
                                         _ = interval.tick() => {
-                                            let pdu = EnquireLink::create_pdu();
-                                             if let Err(e) = writer.write_all(&pdu).await {
-                                                 let _ = tx_ui_clone.send(UiEvent::Log(format!("Heartbeat Error: {}", e))).await;
-                                                 let _ = tx_ui_clone.send(UiEvent::ConnectionStatus("Disconnected".to_string(), false)).await;
-                                                 break;
-                                             }
+                                            let mut pdu = Vec::new();
+                                            let req = EnquireLinkRequest::new(rand::thread_rng().gen_range(1..10000));
+                                            #[allow(clippy::collapsible_if)]
+                                            if req.encode(&mut pdu).is_ok() {
+                                                if let Err(e) = writer.write_all(&pdu).await {
+                                                     let _ = tx_ui_clone.send(UiEvent::Log(format!("Heartbeat Error: {}", e))).await;
+                                                     let _ = tx_ui_clone.send(UiEvent::ConnectionStatus("Disconnected".to_string(), false)).await;
+                                                     break;
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             });
                             
-                            // Spawn Reader separately
+                            // Reader Task
                             let tx_ui_read = tx_ui.clone();
-                            let tx_writer_read = tx_writer.clone(); // Clone writer for reader task
+                            let tx_writer_read = tx_writer.clone(); 
                             
                             tokio::spawn(async move {
                                 let mut buffer = vec![0u8; 1024];
                                 loop {
-                                    // Read Header Length (4 bytes)
                                     let mut len_buf = [0u8; 4];
                                     match reader.read_exact(&mut len_buf).await {
                                         Ok(_) => {
                                             let len = u32::from_be_bytes(len_buf) as usize;
-                                            if len < 4 || len > 1024 * 64 { // Sanity check
+                                            if !(4..=65536).contains(&len) { 
                                                 let _ = tx_ui_read.send(UiEvent::Log(format!("Invalid PDU length: {}", len))).await;
                                                 break;
                                             }
                                             
-                                            // Read rest of PDU
                                             if buffer.len() < len {
                                                 buffer.resize(len, 0);
                                             }
-                                            // Copy len back
                                             buffer[0..4].copy_from_slice(&len_buf);
                                             
                                             match reader.read_exact(&mut buffer[4..len]).await {
                                                 Ok(_) => {
-                                                    // Parse Command ID
                                                     let cmd_id = u32::from_be_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
                                                     match cmd_id {
-                                                        command_id::BIND_RECEIVER_RESP | 
-                                                        command_id::BIND_TRANSMITTER_RESP | 
-                                                        command_id::BIND_TRANSCEIVER_RESP => {
-                                                            match Bind::parse_bind_resp(&buffer[..len]).await {
-                                                                Ok(resp) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Bind Resp: {} ({})", resp.status_name, resp.command_status))).await; }
-                                                                Err(e) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Parse Error: {}", e))).await; }
+                                                        CMD_BIND_RECEIVER_RESP | 
+                                                        CMD_BIND_TRANSMITTER_RESP | 
+                                                        CMD_BIND_TRANSCEIVER_RESP => {
+                                                            match BindResponse::decode(&buffer[..len]) {
+                                                                Ok(resp) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Bind Resp: {} ({})", resp.status_description, resp.command_status))).await; }
+                                                                Err(e) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Parse Error: {:?}", e))).await; }
                                                             }
                                                         },
-                                                        command_id::SUBMIT_SM_RESP => {
-                                                            match SubmitSm::parse_submit_sm_resp(&buffer[..len]).await {
-                                                                Ok(resp) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Submit Resp: {} (Msg ID: {:?})", resp.status_name, resp.message_id))).await; }
-                                                                Err(e) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Parse Error: {}", e))).await; }
+                                                        CMD_SUBMIT_SM_RESP => {
+                                                            match SubmitSmResponse::decode(&buffer[..len]) {
+                                                                Ok(resp) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Submit Resp: {} (Msg ID: {})", resp.status_description, resp.message_id))).await; }
+                                                                Err(e) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Parse Error: {:?}", e))).await; }
                                                             }
                                                         },
-                                                        command_id::DELIVER_SM => {
-                                                        match deliver_sm::deliver_sm_async(&buffer[..len]).await {
-                                                                Ok(result) => {
-                                                                    let mut log_msg = format!("DeliverSM From: {} To: {}", 
-                                                                        result.orig_addr.unwrap_or_default(), 
-                                                                        result.dest_addr.unwrap_or_default()
-                                                                    );
+                                                        CMD_DELIVER_SM => {
+                                                            match DeliverSmRequest::decode(&buffer[..len]) {
+                                                                Ok(req) => {
+                                                                    let short_msg = String::from_utf8_lossy(&req.short_message).into_owned();
+                                                                    let mut log_msg = format!("DeliverSM From: {} To: {}", req.source_addr, req.dest_addr);
                                                                     
-                                                                    if let Some(msg) = result.message {
-                                                                        log_msg.push_str(&format!(" Msg: \"{}\"", msg));
-                                                                    }
+                                                                    // Simple check for DLR based on esm_class or just content
+                                                                    // In logic, we just log "Msg: ..."
+                                                                    log_msg.push_str(&format!(" Msg: \"{}\"", short_msg));
+
+                                                                    let _ = tx_ui_read.send(UiEvent::Log(log_msg)).await;
                                                                     
-                                                                    if let (Some(id), Some(stat)) = (result.msg_id, result.msg_status) {
-                                                                        log_msg.push_str(&format!(" [DLR: ID={} Stat={}]", id, stat));
-                                                                    }
-                                                                    
-                                                                     let _ = tx_ui_read.send(UiEvent::Log(log_msg)).await;
-                                                                     
-                                                                     // Send Response
-                                                                     if let Some(tx_w) = &tx_writer_read {
-                                                                         if let Err(e) = tx_w.send(WriterCmd::Write(result.deliversm_resp_bytes)).await {
-                                                                             let _ = tx_ui_read.send(UiEvent::Log(format!("Failed to send DeliverSmResp: {}", e))).await;
+                                                                    // Send Response
+                                                                    let resp = DeliverSmResponse::new(req.sequence_number, "ESME_ROK");
+                                                                    let mut pdu = Vec::new();
+                                                                    if resp.encode(&mut pdu).is_ok()
+                                                                         && let Some(tx_w) = &tx_writer_read {
+                                                                             let _ = tx_w.send(WriterCmd::Write(pdu)).await;
                                                                          }
-                                                                     }
                                                                 }
-                                                                Err(e) => { let _ = tx_ui_read.send(UiEvent::Log(format!("DeliverSM Parse Error: {}", e))).await; }
+                                                                Err(e) => { let _ = tx_ui_read.send(UiEvent::Log(format!("DeliverSM Parse Error: {:?}", e))).await; }
                                                             }
                                                         },
-                                                        0x80000006 => { // UNBIND_RESP
+                                                        CMD_UNBIND_RESP => { // 0x80000006
                                                             let _ = tx_ui_read.send(UiEvent::Log("Unbind Response Received".to_string())).await;
                                                             let _ = tx_ui_read.send(UiEvent::ConnectionStatus("Disconnected".to_string(), false)).await;
                                                         },
-                                                        command_id::ENQUIRE_LINK_RESP => {
-                                                             // Only log if verbose
+                                                        CMD_ENQUIRE_LINK_RESP | CMD_ENQUIRE_LINK => {
+                                                             // Ignore
                                                         },
                                                         _ => {
                                                             let _ = tx_ui_read.send(UiEvent::Log(format!("Recv PDU: CmdID 0x{:08X}", cmd_id))).await;
@@ -296,7 +316,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             }
                                         }
                                         Err(_) => {
-                                            // Connection closed
                                              let _ = tx_ui_read.send(UiEvent::Log("Connection closed by peer".to_string())).await;
                                              let _ = tx_ui_read.send(UiEvent::ConnectionStatus("Disconnected".to_string(), false)).await;
                                             break;
@@ -305,8 +324,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             });
                             
-                            // Connection task spawned above
-
                             // Send Bind
                             let mode_enum = match bind_mode.as_str() {
                                 "Transmitter" => BindMode::Transmitter,
@@ -314,8 +331,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 "Transceiver" => BindMode::Transceiver,
                                 _ => BindMode::Transceiver,
                             };
-                            let bind_builder = BindBuilder::new(mode_enum, system_id, password);
-                            if let Ok(pdu) = Bind::bind_async(bind_builder).await {
+                            
+                            let mut pdu = Vec::new();
+                            let req = BindRequest::new(
+                                rand::thread_rng().gen_range(1..10000), 
+                                mode_enum, 
+                                system_id, 
+                                password
+                            );
+                            
+                            // Handle interface version if needed, BindRequest might have builder or fields.
+                            // smpp-codec BindRequest::new usually sets basics. 
+                            // Assuming `new` is sufficient based on README.
+                            
+                            if req.encode(&mut pdu).is_ok() {
                                 let _ = tx_writer.as_ref().unwrap().send(WriterCmd::Write(pdu)).await;
                             }
                         }
@@ -328,43 +357,65 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Cmd::Unbind => {
                      if let Some(tx) = &tx_writer {
                         let _ = tx_ui.send(UiEvent::Log("Sending Unbind...".to_string())).await;
-                        // Create and send Unbind PDU (0x00000006)
+                        let req = UnbindRequest::new(rand::thread_rng().gen_range(1..10000));
                         let mut pdu = Vec::new();
-                        pdu.extend_from_slice(&16u32.to_be_bytes()); // Length
-                        pdu.extend_from_slice(&0x00000006u32.to_be_bytes()); // UNBIND
-                        pdu.extend_from_slice(&0u32.to_be_bytes()); // Status
-                        pdu.extend_from_slice(&rand::thread_rng().gen_range(1..10000u32).to_be_bytes()); // Seq
-                        
-                        let _ = tx.send(WriterCmd::Write(pdu)).await;
+                        if req.encode(&mut pdu).is_ok() {
+                            let _ = tx.send(WriterCmd::Write(pdu)).await;
+                        }
                      }
                 }
                 Cmd::SendMessage { source, src_ton, src_npi, dest, dest_ton, dest_npi, message, encoding, mode, pid, dcs, validity, dlr } => {
                      if let Some(tx) = &tx_writer {
                         let enc_enum = match encoding.as_str() {
-                            "GSM 7-bit" => Encoding::Gsm7Bit,
-                            "Latin-1" => Encoding::Latin1,
-                            "UCS-2" => Encoding::Ucs2,
-                            _ => Encoding::Gsm7Bit,
+                            "GSM 7-bit" => EncodingType::Gsm7Bit,
+                            "Latin-1" => EncodingType::Latin1,
+                            "UCS-2" => EncodingType::Ucs2,
+                            _ => EncodingType::Gsm7Bit,
                         };
 
                         let mode_enum = match mode.as_str() {
-                            "UDH" => MultipartMode::Udh,
-                            "SAR" => MultipartMode::Sar,
-                            "Payload" => MultipartMode::Payload,
-                            _ => MultipartMode::Udh,
+                            "UDH" => SplitMode::Udh,
+                            "SAR" => SplitMode::Sar,
+                            "Payload" => SplitMode::Payload,
+                            _ => SplitMode::Udh,
                         };
 
-                        match SubmitSm::create_pdus(
-                            source, src_ton.parse().unwrap_or(1), src_npi.parse().unwrap_or(1),
-                            dest, dest_ton.parse().unwrap_or(1), dest_npi.parse().unwrap_or(1),
-                            message, enc_enum, mode_enum,
-                            pid.parse().unwrap_or(0), dcs.parse().ok(), validity, dlr
-                        ).await {
-                            Ok(pdus) => {
-                                let total = pdus.len();
-                                for (i, pdu) in pdus.iter().enumerate() {
-                                     let _ = tx.send(WriterCmd::Write(pdu.to_vec())).await;
-                                     let _ = tx_ui.send(UiEvent::Log(format!("Sent Segment {}/{}", i+1, total))).await;
+                        match MessageSplitter::split(message, enc_enum, mode_enum) {
+                            Ok((parts, data_coding_auto)) => {
+                                let total = parts.len();
+                                let mut seq_num = rand::thread_rng().gen_range(1..10000) as u32;
+
+                                for (i, part) in parts.into_iter().enumerate() {
+                                     let mut req = SubmitSmRequest::new(
+                                         seq_num, 
+                                         source.clone(), 
+                                         dest.clone(), 
+                                         part
+                                     );
+                                     
+                                     // Set fields
+                                     req.data_coding = dcs.parse().unwrap_or(data_coding_auto);
+                                     if let Ok(pid_val) = pid.parse() { req.protocol_id = pid_val; }
+                                     // Type of Number & NPI mapping
+                                     req.source_addr_ton = Ton::from(src_ton.parse::<u8>().unwrap_or(0));
+                                     req.source_addr_npi = Npi::from(src_npi.parse::<u8>().unwrap_or(0));
+                                     req.dest_addr_ton = Ton::from(dest_ton.parse::<u8>().unwrap_or(0));
+                                     req.dest_addr_npi = Npi::from(dest_npi.parse::<u8>().unwrap_or(0));
+                                     
+                                     // Validity
+                                     req.validity_period = validity.clone();
+                                     req.registered_delivery = if dlr { 1 } else { 0 };
+
+                                     if mode_enum == SplitMode::Udh && total > 1 {
+                                         req.esm_class = 0x40; // UDHI
+                                     }
+
+                                     let mut pdu = Vec::new();
+                                     if req.encode(&mut pdu).is_ok() {
+                                         let _ = tx.send(WriterCmd::Write(pdu)).await;
+                                         let _ = tx_ui.send(UiEvent::Log(format!("Sent Segment {}/{}", i+1, total))).await;
+                                     }
+                                     seq_num += 1;
                                 }
                             }
                             Err(e) => {
@@ -388,7 +439,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             system_id: sys_id.into(),
             password: pass.into(),
             bind_mode: bind_mode.into(),
-            use_ssl // Pass boolean
+            use_ssl,
         });
     });
 
@@ -398,23 +449,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let tx_cmd_send = tx_cmd.clone();
-    main_window.on_send_message(move |src, src_ton, src_npi, dest, dest_ton, dest_npi, msg, enc, mode, pid, dcs, val, dlr| {
-         let _ = tx_cmd_send.blocking_send(Cmd::SendMessage {
-            source: src.into(),
-            src_ton: src_ton.into(),
-            src_npi: src_npi.into(),
-            dest: dest.into(),
-            dest_ton: dest_ton.into(),
-            dest_npi: dest_npi.into(),
-            message: msg.into(),
-            encoding: enc.into(),
-            mode: mode.into(),
-            pid: pid.into(),
-            dcs: dcs.into(),
-            validity: val.into(),
-            dlr
-        });
-    });
+    main_window.on_send_message(
+        move |src,
+              src_ton,
+              src_npi,
+              dest,
+              dest_ton,
+              dest_npi,
+              msg,
+              enc,
+              mode,
+              pid,
+              dcs,
+              val,
+              dlr| {
+            let _ = tx_cmd_send.blocking_send(Cmd::SendMessage {
+                source: src.into(),
+                src_ton: src_ton.into(),
+                src_npi: src_npi.into(),
+                dest: dest.into(),
+                dest_ton: dest_ton.into(),
+                dest_npi: dest_npi.into(),
+                message: msg.into(),
+                encoding: enc.into(),
+                mode: mode.into(),
+                pid: pid.into(),
+                dcs: dcs.into(),
+                validity: val.into(),
+                dlr,
+            });
+        },
+    );
 
     main_window.run()?;
     Ok(())

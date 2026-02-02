@@ -2,7 +2,7 @@ use std::path::Path;
 
 fn main() -> std::io::Result<()> {
     slint_build::compile("ui/appwindow.slint").unwrap();
-    
+
     if cfg!(target_os = "windows") {
         let icon_png = Path::new("icon.png");
         let icon_ico = Path::new("icon.ico");
@@ -16,14 +16,14 @@ fn main() -> std::io::Result<()> {
                     let resized = img.resize(256, 256, image::imageops::FilterType::Lanczos3);
 
                     if let Err(e) = resized.save(icon_ico) {
-                         println!("cargo:warning=Failed to save icon.ico: {}", e);
+                        println!("cargo:warning=Failed to save icon.ico: {}", e);
                     } else {
                         // Success
-                         println!("cargo:rerun-if-changed=icon.png");
+                        println!("cargo:rerun-if-changed=icon.png");
                     }
-                },
+                }
                 Err(e) => {
-                     println!("cargo:warning=Failed to open icon.png: {}", e);
+                    println!("cargo:warning=Failed to open icon.png: {}", e);
                 }
             }
         }
@@ -34,14 +34,14 @@ fn main() -> std::io::Result<()> {
         res.set("OriginalFilename", "rSMPP.exe");
         res.set("LegalCopyright", "Copyright (c) 2024");
         res.set("CompanyName", "My Company"); // Replace with your company name
-        
+
         // Only set icon if the file exists (either pre-existing or generated)
         if icon_ico.exists() {
             res.set_icon(icon_ico.to_str().unwrap());
         }
-        
+
         res.compile()?;
     }
-    
+
     Ok(())
 }

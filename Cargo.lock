@@ -3653,6 +3653,7 @@ dependencies = [
  "rustls-pki-types",
  "slint",
  "slint-build",
+ "smpp-codec",
  "thiserror 1.0.69",
  "tokio",
  "tokio-rustls",
@@ -4377,6 +4378,15 @@ checksum = "0f7a918bd2a9951d18ee6e48f076843e8e73a9a5d22cf05bcd4b7a81bdd04e17"
 dependencies = [
  "borsh",
  "serde_core",
+]
+
+[[package]]
+name = "smpp-codec"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36c87b840b20378a497aa0a95b7eacfa4af68371d9de15854073d9a77fcffac9"
+dependencies = [
+ "rand 0.9.2",
 ]
 
 [[package]]
