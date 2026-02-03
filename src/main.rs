@@ -1,4 +1,4 @@
-﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 // mod common; // Removed as we use smpp-codec
 // We will largely replace local common with smpp-codec types.
@@ -42,6 +42,7 @@ use smpp_codec::pdus::{
     SubmitSmRequest, SubmitSmResponse, UnbindRequest,
 };
 use smpp_codec::splitter::{EncodingType, MessageSplitter, SplitMode};
+use smpp_codec::tlv::{Tlv, tags};
 
 slint::include_modules!();
 
@@ -383,14 +384,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             Ok((parts, data_coding_auto)) => {
                                 let total = parts.len();
                                 let mut seq_num = rand::thread_rng().gen_range(1..10000) as u32;
+                                let sar_ref_num = rand::thread_rng().r#gen::<u16>();
 
                                 for (i, part) in parts.into_iter().enumerate() {
-                                     let mut req = SubmitSmRequest::new(
-                                         seq_num,
-                                         source.clone(),
-                                         dest.clone(),
-                                         part
-                                     );
+                                     let mut req = if mode_enum == SplitMode::Payload {
+                                         let mut r = SubmitSmRequest::new(
+                                             seq_num,
+                                             source.clone(),
+                                             dest.clone(),
+                                             Vec::new()
+                                         );
+                                         r.add_tlv(Tlv::new(tags::MESSAGE_PAYLOAD, part));
+                                         r
+                                     } else {
+                                         SubmitSmRequest::new(
+                                             seq_num,
+                                             source.clone(),
+                                             dest.clone(),
+                                             part
+                                         )
+                                     };
 
                                      // Set fields
                                      req.data_coding = dcs.parse().unwrap_or(data_coding_auto);
@@ -409,11 +422,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                          req.esm_class = 0x40; // UDHI
                                      }
 
-                                     let mut pdu = Vec::new();
-                                     if req.encode(&mut pdu).is_ok() {
-                                         let _ = tx.send(WriterCmd::Write(pdu)).await;
-                                         let _ = tx_ui.send(UiEvent::Log(format!("Sent Segment {}/{}", i+1, total))).await;
+                                     if mode_enum == SplitMode::Sar && total > 1 {
+                                         req.add_tlv(Tlv::new_u16(tags::SAR_MSG_REF_NUM, sar_ref_num));
+                                         req.add_tlv(Tlv::new_u8(tags::SAR_TOTAL_SEGMENTS, total as u8));
+                                         req.add_tlv(Tlv::new_u8(tags::SAR_SEGMENT_SEQNUM, (i + 1) as u8));
                                      }
+
+                                     let mut pdu = Vec::new();
+                                     if let Err(e) = req.encode(&mut pdu) {
+                                         let _ = tx_ui.send(UiEvent::Log(format!("Encode Error: {:?}", e))).await;
+                                         continue;
+                                     }
+
+                                     let _ = tx.send(WriterCmd::Write(pdu)).await;
+                                     let _ = tx_ui.send(UiEvent::Log(format!("Sent Segment {}/{}", i+1, total))).await;
+
                                      seq_num += 1;
                                 }
                             }
@@ -446,6 +469,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     main_window.on_unbind(move || {
         let _ = tx_cmd_unbind.blocking_send(Cmd::Unbind);
     });
+
+    main_window.on_string_length(|s| s.chars().count() as i32);
 
     let tx_cmd_send = tx_cmd.clone();
     main_window.on_send_message(

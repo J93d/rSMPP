@@ -72,6 +72,7 @@ export component AppWindow inherits Window {
         string, string, string, // dest
         string, string, string, string, string, string, bool // payload details
     ); 
+    pure callback string_length(string) -> int; 
 
     // --- PROPERTIES ---
     in property <string> connection_status: "Disconnected";
@@ -209,7 +210,10 @@ export component AppWindow inherits Window {
                 // MESSAGE BODY
                 VerticalLayout {
                     spacing: 4px;
-                    Text { text: "Message Content"; color: Palette.text-muted; font-size: 11px; }
+                    HorizontalLayout {
+                        Text { text: "Message Content"; color: Palette.text-muted; font-size: 11px; horizontal-stretch: 1; }
+                        Text { text: root.string_length(msg_body.text) + " chars"; color: Palette.text-muted; font-size: 11px; }
+                    }
                     msg_body := TextEdit { 
                         height: 80px;
                     }
