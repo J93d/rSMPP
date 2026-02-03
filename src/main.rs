@@ -1,15 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-// mod common; // Removed as we use smpp-codec
-// We will largely replace local common with smpp-codec types.
-// But wait, `mod common` in rSMPP might have other things?
-// Checking step 25 (bind.rs) imports `crate::common`.
-// Checking main.rs imports `mod common`.
-// I'll check `common.rs` content later. For now I will assume I can replace it or use smpp-codec.
-// safely, I will keep `mod common` if it defines things `main.rs` needs that aren't in smpp-codec,
-// but `main.rs` mostly used it for `command_id` and `BindMode`.
-// I will start by importing smpp_codec.
-
 use rand::Rng;
 use slint::ComponentHandle;
 use slint::{Model, SharedString, VecModel};
@@ -340,9 +330,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 password
                             );
 
-                            // Handle interface version if needed, BindRequest might have builder or fields.
-                            // smpp-codec BindRequest::new usually sets basics.
-                            // Assuming `new` is sufficient based on README.
+
 
                             if req.encode(&mut pdu).is_ok() {
                                 let _ = tx_writer.as_ref().unwrap().send(WriterCmd::Write(pdu)).await;
@@ -388,6 +376,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                                 for (i, part) in parts.into_iter().enumerate() {
                                      let mut req = if mode_enum == SplitMode::Payload {
+                                         // For Payload mode, the short_message field is empty,
+                                         // and the content goes into the message_payload TLV.
                                          let mut r = SubmitSmRequest::new(
                                              seq_num,
                                              source.clone(),
@@ -423,6 +413,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                      }
 
                                      if mode_enum == SplitMode::Sar && total > 1 {
+                                         // SAR Mode: Add SAR TLVs for reconstruction at the receiver
                                          req.add_tlv(Tlv::new_u16(tags::SAR_MSG_REF_NUM, sar_ref_num));
                                          req.add_tlv(Tlv::new_u8(tags::SAR_TOTAL_SEGMENTS, total as u8));
                                          req.add_tlv(Tlv::new_u8(tags::SAR_SEGMENT_SEQNUM, (i + 1) as u8));
@@ -470,6 +461,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = tx_cmd_unbind.blocking_send(Cmd::Unbind);
     });
 
+    // Calculate string length including correct Unicode character count
     main_window.on_string_length(|s| s.chars().count() as i32);
 
     let tx_cmd_send = tx_cmd.clone();
