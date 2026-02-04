@@ -18,5 +18,7 @@ smpp-codec = "0.1.0"
 
 [build-dependencies]
 slint-build = "1.9" # This compiles the .slint file during build
+
+[target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
 image = "0.24"
