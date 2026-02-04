@@ -43,6 +43,9 @@ A modern, high-performance, and secure SMPP v3.4 client built with Rust and Slin
 cargo run --release
 ```
 
+### Linux Users
+Please refer to [COMPILING_ON_LINUX.md](./COMPILING_ON_LINUX.md) for platform-specific dependencies and build instructions.
+
 ### Configuration
 1.  **Server Config**: Enter Host IP and Port (default 2775).
 2.  **Credentials**: Enter System ID and Password.
