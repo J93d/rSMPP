@@ -9,6 +9,7 @@ A modern, high-performance, and secure SMPP v3.4 client built with Rust and Slin
 -   **Dark Theme**: Sleek, professional dark mode design.
 -   **Layout Optimized**: "Use every pixel" philosophy with compact, aligned controls.
 -   **Responsive**: Adapts perfectly to different window sizes (min-width derived).
+-   **Interactive Logs**: Transaction logs are selectable and copyable for easy debugging.
 
 ### 🔒 Security & Connectivity
 -   **TLS 1.2 / 1.3 Support**: Secure connections using `rustls`.
@@ -26,6 +27,11 @@ A modern, high-performance, and secure SMPP v3.4 client built with Rust and Slin
     -   **UDH (User Data Header)**: Standard concatenation.
     -   **SAR (Segmentation and Reassembly)**: Optional TLV-based splitting.
     -   **Message Payload**: Send up to 64kb as a single payload TLV.
+-   **Ancillary Operations**:
+    -   **Query SM**: Check the status of submitted messages.
+    -   **Cancel SM**: Cancel pending messages.
+    -   **Replace SM**: Update the content of pending messages.
+    -   **SubmitMulti**: Automatically detects multiple recipients and uses `submit_multi` PDU.
 -   **Delivery Receipts (DLR)**: Request and view detailed Delivery Reports.
 
 ### 📊 Robust Logging

@@ -24,12 +24,14 @@ use tokio_rustls::rustls::{self, ClientConfig, RootCertStore};
 // SMPP Codec Imports
 use smpp_codec::common::{
     BindMode, CMD_BIND_RECEIVER_RESP, CMD_BIND_TRANSCEIVER_RESP, CMD_BIND_TRANSMITTER_RESP,
-    CMD_DELIVER_SM, CMD_ENQUIRE_LINK, CMD_ENQUIRE_LINK_RESP, CMD_SUBMIT_SM_RESP, CMD_UNBIND_RESP,
-    Npi, Ton,
+    CMD_DELIVER_SM, CMD_ENQUIRE_LINK, CMD_ENQUIRE_LINK_RESP, CMD_SUBMIT_MULTI_SM_RESP,
+    CMD_SUBMIT_SM_RESP, CMD_UNBIND_RESP, Npi, Ton,
 };
+use smpp_codec::common::{CMD_CANCEL_SM_RESP, CMD_QUERY_SM_RESP, CMD_REPLACE_SM_RESP};
 use smpp_codec::pdus::{
-    BindRequest, BindResponse, DeliverSmRequest, DeliverSmResponse, EnquireLinkRequest,
-    SubmitSmRequest, SubmitSmResponse, UnbindRequest,
+    BindRequest, BindResponse, CancelSmRequest, CancelSmResponse, DeliverSmRequest,
+    DeliverSmResponse, Destination, EnquireLinkRequest, QuerySmRequest, QuerySmResponse, ReplaceSm,
+    ReplaceSmResp, SubmitMulti, SubmitMultiResp, SubmitSmRequest, SubmitSmResponse, UnbindRequest,
 };
 use smpp_codec::splitter::{EncodingType, MessageSplitter, SplitMode};
 use smpp_codec::tlv::{Tlv, tags};
@@ -65,6 +67,28 @@ enum Cmd {
         dcs: String,
         validity: String,
         dlr: bool,
+    },
+    QuerySm {
+        msg_id: String,
+        source: String,
+        ton: String,
+        npi: String,
+    },
+    CancelSm {
+        msg_id: String,
+        source: String,
+        src_ton: String,
+        src_npi: String,
+        dest: String,
+        dest_ton: String,
+        dest_npi: String,
+    },
+    ReplaceSm {
+        msg_id: String,
+        source: String,
+        src_ton: String,
+        src_npi: String,
+        message: String,
     },
 }
 
@@ -196,15 +220,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let mut interval = time::interval(Duration::from_secs(5));
                                 loop {
                                     select! {
-                                        Some(w_cmd) = rx_w.recv() => {
-                                            match w_cmd {
-                                                WriterCmd::Write(data) => {
-                                                    if let Err(e) = writer.write_all(&data).await {
-                                                        let _ = tx_ui_clone.send(UiEvent::Log(format!("Write Error: {}", e))).await;
-                                                        let _ = tx_ui_clone.send(UiEvent::ConnectionStatus("Disconnected".to_string(), false)).await;
-                                                        break;
+                                        cmd = rx_w.recv() => {
+                                            match cmd {
+                                                Some(w_cmd) => {
+                                                    match w_cmd {
+                                                        WriterCmd::Write(data) => {
+                                                            if let Err(e) = writer.write_all(&data).await {
+                                                                let _ = tx_ui_clone.send(UiEvent::Log(format!("Write Error: {}", e))).await;
+                                                                let _ = tx_ui_clone.send(UiEvent::ConnectionStatus("Disconnected".to_string(), false)).await;
+                                                                break;
+                                                            }
+                                                        }
                                                     }
                                                 }
+                                                None => break,
                                             }
                                         }
                                         // Heartbeat Loop
@@ -260,6 +289,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                         CMD_SUBMIT_SM_RESP => {
                                                             match SubmitSmResponse::decode(&buffer[..len]) {
                                                                 Ok(resp) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Submit Resp: {} (Msg ID: {})", resp.status_description, resp.message_id))).await; }
+                                                                Err(e) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Parse Error: {:?}", e))).await; }
+                                                            }
+                                                        },
+                                                        CMD_SUBMIT_MULTI_SM_RESP => {
+                                                            match SubmitMultiResp::decode(&buffer[..len]) {
+                                                                Ok(resp) => {
+                                                                    let mut log_msg = format!("SubmitMulti Resp: {} (Msg ID: {})", resp.status_description, resp.message_id);
+                                                                    if !resp.unsuccess_smes.is_empty() {
+                                                                        log_msg.push_str(&format!(" Failed: {}", resp.unsuccess_smes.len()));
+                                                                    }
+                                                                    let _ = tx_ui_read.send(UiEvent::Log(log_msg)).await;
+                                                                }
+                                                                Err(e) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Parse Error: {:?}", e))).await; }
+                                                            }
+                                                        },
+                                                        CMD_QUERY_SM_RESP => {
+                                                            match QuerySmResponse::decode(&buffer[..len]) {
+                                                                Ok(resp) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Query Resp: {} (State: {:?}, Err: {})", resp.status_description, resp.message_state, resp.error_code))).await; }
+                                                                Err(e) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Parse Error: {:?}", e))).await; }
+                                                            }
+                                                        },
+                                                        CMD_CANCEL_SM_RESP => {
+                                                            match CancelSmResponse::decode(&buffer[..len]) {
+                                                                Ok(resp) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Cancel Resp: {}", resp.status_description))).await; }
+                                                                Err(e) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Parse Error: {:?}", e))).await; }
+                                                            }
+                                                        },
+                                                        CMD_REPLACE_SM_RESP => {
+                                                            match ReplaceSmResp::decode(&buffer[..len]) {
+                                                                Ok(resp) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Replace Resp: {}", resp.status_description))).await; }
                                                                 Err(e) => { let _ = tx_ui_read.send(UiEvent::Log(format!("Parse Error: {:?}", e))).await; }
                                                             }
                                                         },
@@ -375,58 +434,112 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let sar_ref_num = rand::thread_rng().r#gen::<u16>();
 
                                 for (i, part) in parts.into_iter().enumerate() {
-                                     let mut req = if mode_enum == SplitMode::Payload {
-                                         // For Payload mode, the short_message field is empty,
-                                         // and the content goes into the message_payload TLV.
-                                         let mut r = SubmitSmRequest::new(
-                                             seq_num,
-                                             source.clone(),
-                                             dest.clone(),
-                                             Vec::new()
-                                         );
-                                         r.add_tlv(Tlv::new(tags::MESSAGE_PAYLOAD, part));
-                                         r
-                                     } else {
-                                         SubmitSmRequest::new(
-                                             seq_num,
-                                             source.clone(),
-                                             dest.clone(),
-                                             part
-                                         )
-                                     };
+                                    // Parse destinations to check if it's a multi-submit
+                                    let dests: Vec<&str> = dest.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
 
-                                     // Set fields
-                                     req.data_coding = dcs.parse().unwrap_or(data_coding_auto);
-                                     if let Ok(pid_val) = pid.parse() { req.protocol_id = pid_val; }
-                                     // Type of Number & NPI mapping
-                                     req.source_addr_ton = Ton::from(src_ton.parse::<u8>().unwrap_or(0));
-                                     req.source_addr_npi = Npi::from(src_npi.parse::<u8>().unwrap_or(0));
-                                     req.dest_addr_ton = Ton::from(dest_ton.parse::<u8>().unwrap_or(0));
-                                     req.dest_addr_npi = Npi::from(dest_npi.parse::<u8>().unwrap_or(0));
+                                    if dests.len() > 1 {
+                                        // SubmitMulti Logic
+                                        let destinations: Vec<Destination> = dests.iter().map(|d| {
+                                            Destination::SmeAddress {
+                                                ton: Ton::from(dest_ton.parse::<u8>().unwrap_or(0)),
+                                                npi: Npi::from(dest_npi.parse::<u8>().unwrap_or(0)),
+                                                address: d.to_string(),
+                                            }
+                                        }).collect();
 
-                                     // Validity
-                                     req.validity_period = validity.clone();
-                                     req.registered_delivery = if dlr { 1 } else { 0 };
+                                        let mut req = SubmitMulti::new(
+                                            seq_num,
+                                            source.clone(),
+                                            destinations,
+                                            if mode_enum == SplitMode::Payload { Vec::new() } else { part.clone() }
+                                        );
 
-                                     if mode_enum == SplitMode::Udh && total > 1 {
-                                         req.esm_class = 0x40; // UDHI
-                                     }
+                                        if mode_enum == SplitMode::Payload {
+                                            req.optional_params.push(Tlv::new(tags::MESSAGE_PAYLOAD, part));
+                                        }
 
-                                     if mode_enum == SplitMode::Sar && total > 1 {
-                                         // SAR Mode: Add SAR TLVs for reconstruction at the receiver
-                                         req.add_tlv(Tlv::new_u16(tags::SAR_MSG_REF_NUM, sar_ref_num));
-                                         req.add_tlv(Tlv::new_u8(tags::SAR_TOTAL_SEGMENTS, total as u8));
-                                         req.add_tlv(Tlv::new_u8(tags::SAR_SEGMENT_SEQNUM, (i + 1) as u8));
-                                     }
+                                        // Set Common Fields
+                                        req.data_coding = dcs.parse().unwrap_or(data_coding_auto);
+                                        if let Ok(pid_val) = pid.parse() { req.protocol_id = pid_val; }
+                                        req.source_addr_ton = Ton::from(src_ton.parse::<u8>().unwrap_or(0));
+                                        req.source_addr_npi = Npi::from(src_npi.parse::<u8>().unwrap_or(0));
+                                        req.validity_period = validity.clone();
+                                        req.registered_delivery = if dlr { 1 } else { 0 };
 
-                                     let mut pdu = Vec::new();
-                                     if let Err(e) = req.encode(&mut pdu) {
-                                         let _ = tx_ui.send(UiEvent::Log(format!("Encode Error: {:?}", e))).await;
-                                         continue;
-                                     }
+                                        if mode_enum == SplitMode::Udh && total > 1 {
+                                            req.esm_class = 0x40; // UDHI
+                                        }
 
-                                     let _ = tx.send(WriterCmd::Write(pdu)).await;
-                                     let _ = tx_ui.send(UiEvent::Log(format!("Sent Segment {}/{}", i+1, total))).await;
+                                        if mode_enum == SplitMode::Sar && total > 1 {
+                                            req.optional_params.push(Tlv::new_u16(tags::SAR_MSG_REF_NUM, sar_ref_num));
+                                            req.optional_params.push(Tlv::new_u8(tags::SAR_TOTAL_SEGMENTS, total as u8));
+                                            req.optional_params.push(Tlv::new_u8(tags::SAR_SEGMENT_SEQNUM, (i + 1) as u8));
+                                        }
+
+                                        let mut pdu = Vec::new();
+                                        if let Err(e) = req.encode(&mut pdu) {
+                                            let _ = tx_ui.send(UiEvent::Log(format!("Encode Error (Multi): {:?}", e))).await;
+                                            continue;
+                                        }
+
+                                        let _ = tx.send(WriterCmd::Write(pdu)).await;
+                                        let _ = tx_ui.send(UiEvent::Log(format!("Sent Multi-Seg {}/{} to {} dests", i+1, total, dests.len()))).await;
+
+                                    } else {
+                                        // SubmitSm Logic (Existing)
+                                        let mut req = if mode_enum == SplitMode::Payload {
+                                            // For Payload mode, the short_message field is empty,
+                                            // and the content goes into the message_payload TLV.
+                                            let mut r = SubmitSmRequest::new(
+                                                seq_num,
+                                                source.clone(),
+                                                dest.clone(),
+                                                Vec::new()
+                                            );
+                                            r.add_tlv(Tlv::new(tags::MESSAGE_PAYLOAD, part));
+                                            r
+                                        } else {
+                                            SubmitSmRequest::new(
+                                                seq_num,
+                                                source.clone(),
+                                                dest.clone(),
+                                                part
+                                            )
+                                        };
+
+                                        // Set fields
+                                        req.data_coding = dcs.parse().unwrap_or(data_coding_auto);
+                                        if let Ok(pid_val) = pid.parse() { req.protocol_id = pid_val; }
+                                        // Type of Number & NPI mapping
+                                        req.source_addr_ton = Ton::from(src_ton.parse::<u8>().unwrap_or(0));
+                                        req.source_addr_npi = Npi::from(src_npi.parse::<u8>().unwrap_or(0));
+                                        req.dest_addr_ton = Ton::from(dest_ton.parse::<u8>().unwrap_or(0));
+                                        req.dest_addr_npi = Npi::from(dest_npi.parse::<u8>().unwrap_or(0));
+
+                                        // Validity
+                                        req.validity_period = validity.clone();
+                                        req.registered_delivery = if dlr { 1 } else { 0 };
+
+                                        if mode_enum == SplitMode::Udh && total > 1 {
+                                            req.esm_class = 0x40; // UDHI
+                                        }
+
+                                        if mode_enum == SplitMode::Sar && total > 1 {
+                                            // SAR Mode: Add SAR TLVs for reconstruction at the receiver
+                                            req.add_tlv(Tlv::new_u16(tags::SAR_MSG_REF_NUM, sar_ref_num));
+                                            req.add_tlv(Tlv::new_u8(tags::SAR_TOTAL_SEGMENTS, total as u8));
+                                            req.add_tlv(Tlv::new_u8(tags::SAR_SEGMENT_SEQNUM, (i + 1) as u8));
+                                        }
+
+                                        let mut pdu = Vec::new();
+                                        if let Err(e) = req.encode(&mut pdu) {
+                                            let _ = tx_ui.send(UiEvent::Log(format!("Encode Error: {:?}", e))).await;
+                                            continue;
+                                        }
+
+                                        let _ = tx.send(WriterCmd::Write(pdu)).await;
+                                        let _ = tx_ui.send(UiEvent::Log(format!("Sent Segment {}/{}", i+1, total))).await;
+                                    }
 
                                      seq_num += 1;
                                 }
@@ -437,6 +550,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                      } else {
                          let _ = tx_ui.send(UiEvent::Log("Not connected".to_string())).await;
+                     }
+                }
+                Cmd::QuerySm { msg_id, source, ton, npi } => {
+                    if let Some(tx) = &tx_writer {
+                        let mut req = QuerySmRequest::new(
+                            rand::thread_rng().gen_range(1..10000),
+                            msg_id,
+                            source,
+                        );
+                        req.source_addr_ton = Ton::from(ton.parse::<u8>().unwrap_or(0));
+                        req.source_addr_npi = Npi::from(npi.parse::<u8>().unwrap_or(0));
+
+                        let mut pdu = Vec::new();
+                        if req.encode(&mut pdu).is_ok() {
+                            let _ = tx.send(WriterCmd::Write(pdu)).await;
+                            let _ = tx_ui.send(UiEvent::Log("Sent QuerySm".to_string())).await;
+                        }
+                    }
+                }
+                Cmd::CancelSm { msg_id, source, src_ton, src_npi, dest, dest_ton, dest_npi } => {
+                     if let Some(tx) = &tx_writer {
+                        let mut req = CancelSmRequest::new(
+                            rand::thread_rng().gen_range(1..10000),
+                            msg_id,
+                            source,
+                            dest,
+                        );
+                        req.service_type = "SMPP".to_string();
+                        req.source_addr_ton = Ton::from(src_ton.parse::<u8>().unwrap_or(0));
+                        req.source_addr_npi = Npi::from(src_npi.parse::<u8>().unwrap_or(0));
+                        req.dest_addr_ton = Ton::from(dest_ton.parse::<u8>().unwrap_or(0));
+                        req.dest_addr_npi = Npi::from(dest_npi.parse::<u8>().unwrap_or(0));
+
+                        let mut pdu = Vec::new();
+                        if req.encode(&mut pdu).is_ok() {
+                            let _ = tx.send(WriterCmd::Write(pdu)).await;
+                            let _ = tx_ui.send(UiEvent::Log("Sent CancelSm".to_string())).await;
+                        }
+                     }
+                }
+                Cmd::ReplaceSm { msg_id, source, src_ton, src_npi, message } => {
+                     if let Some(tx) = &tx_writer {
+                        let mut req = ReplaceSm::new(
+                            rand::thread_rng().gen_range(1..10000),
+                            msg_id,
+                            source,
+                            message.into_bytes(),
+                        );
+                        req.source_addr_ton = Ton::from(src_ton.parse::<u8>().unwrap_or(0));
+                        req.source_addr_npi = Npi::from(src_npi.parse::<u8>().unwrap_or(0));
+
+                        let mut pdu = Vec::new();
+                        if req.encode(&mut pdu).is_ok() {
+                            let _ = tx.send(WriterCmd::Write(pdu)).await;
+                            let _ = tx_ui.send(UiEvent::Log("Sent ReplaceSm".to_string())).await;
+                        }
                      }
                 }
             }
@@ -496,6 +665,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         },
     );
+
+    let tx_cmd_query = tx_cmd.clone();
+    main_window.on_query_sm(move |msg_id, source, ton, npi| {
+        let _ = tx_cmd_query.blocking_send(Cmd::QuerySm {
+            msg_id: msg_id.into(),
+            source: source.into(),
+            ton: ton.into(),
+            npi: npi.into(),
+        });
+    });
+
+    let tx_cmd_cancel = tx_cmd.clone();
+    main_window.on_cancel_sm(
+        move |msg_id, source, src_ton, src_npi, dest, dest_ton, dest_npi| {
+            let _ = tx_cmd_cancel.blocking_send(Cmd::CancelSm {
+                msg_id: msg_id.into(),
+                source: source.into(),
+                src_ton: src_ton.into(),
+                src_npi: src_npi.into(),
+                dest: dest.into(),
+                dest_ton: dest_ton.into(),
+                dest_npi: dest_npi.into(),
+            });
+        },
+    );
+
+    let tx_cmd_replace = tx_cmd.clone();
+    main_window.on_replace_sm(move |msg_id, source, src_ton, src_npi, msg| {
+        let _ = tx_cmd_replace.blocking_send(Cmd::ReplaceSm {
+            msg_id: msg_id.into(),
+            source: source.into(),
+            src_ton: src_ton.into(),
+            src_npi: src_npi.into(),
+            message: msg.into(),
+        });
+    });
 
     main_window.run()?;
     Ok(())

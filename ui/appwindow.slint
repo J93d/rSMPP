@@ -71,7 +71,10 @@ export component AppWindow inherits Window {
         string, string, string, // source
         string, string, string, // dest
         string, string, string, string, string, string, bool // payload details
-    ); 
+    );
+    callback query_sm(string, string, string, string); // msg_id, source, source_ton, source_npi
+    callback cancel_sm(string, string, string, string, string, string, string); // msg_id, source, src_ton, src_npi, dest, dest_ton, dest_npi
+    callback replace_sm(string, string, string, string, string); // msg_id, source, source_ton, source_npi, new_message 
     pure callback string_length(string) -> int; 
 
     // --- PROPERTIES ---
@@ -272,6 +275,92 @@ export component AppWindow inherits Window {
                 }
             }
 
+            // --- ANCILLARY OPERATIONS CARD ---
+            Card {
+                title: "Ancillary Operations";
+
+                // SOURCE ROW
+                HorizontalLayout {
+                    spacing: 10px;
+                    adv_src_addr := LabelledInput { label: "Source Address"; placeholder: "Sender ID"; horizontal-stretch: 1; }
+                    adv_src_ton := LabelledInput { label: "TON"; value: "0"; width: 50px; }
+                    adv_src_npi := LabelledInput { label: "NPI"; value: "0"; width: 50px; }
+                }
+
+                // DEST ROW
+                HorizontalLayout {
+                    spacing: 10px;
+                    adv_dest_addr := LabelledInput { label: "Destination Address"; placeholder: "+1234567890"; horizontal-stretch: 1; }
+                    adv_dest_ton := LabelledInput { label: "TON"; value: "0"; width: 50px; }
+                    adv_dest_npi := LabelledInput { label: "NPI"; value: "0"; width: 50px; }
+                }
+
+                // MESSAGE ID ROW
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text { 
+                        text: "Message ID:"; 
+                        vertical-alignment: center; 
+                        color: Palette.text-muted;
+                        font-size: 11px;
+                    }
+                    adv_msg_id := LineEdit { 
+                        placeholder-text: "Msg ID from SubmitResp"; 
+                        height: 32px;
+                    }
+                }
+
+                // NEW MESSAGE BODY
+                VerticalLayout {
+                    spacing: 4px;
+                    Text { text: "New Message Text (Replace)"; color: Palette.text-muted; font-size: 11px; }
+                    adv_new_msg := TextEdit { 
+                        height: 50px; // Reduced height compared to SubmitSm (80px)
+                    }
+                }
+
+                // ACTION BUTTONS
+                HorizontalLayout {
+                    spacing: 10px;
+                    padding-top: 5px;
+
+                    Button {
+                        text: "Query SM";
+                        height: 32px;
+                        primary: true;
+                        clicked => {
+                            root.query_sm(adv_msg_id.text, adv_src_addr.value, adv_src_ton.value, adv_src_npi.value); 
+                        }
+                    }
+
+                    Button {
+                        text: "Cancel SM";
+                        height: 32px;
+                        primary: true;
+                        clicked => {
+                            root.cancel_sm(
+                                adv_msg_id.text,
+                                adv_src_addr.value, adv_src_ton.value, adv_src_npi.value,
+                                adv_dest_addr.value, adv_dest_ton.value, adv_dest_npi.value
+                            );
+                        }
+                    }
+
+                    Button {
+                        text: "Replace SM";
+                        height: 32px;
+                        primary: true;
+                        clicked => {
+                            root.replace_sm(
+                                adv_msg_id.text,
+                                adv_src_addr.value, adv_src_ton.value, adv_src_npi.value,
+                                adv_new_msg.text
+                            );
+                        }
+                    }
+                }
+            }
+
             // --- TERMINAL / LOGS ---
             Card {
                 title: "Transaction Logs";
@@ -290,11 +379,15 @@ export component AppWindow inherits Window {
                                 alignment: start;
                                 spacing: 2px;
                                 padding: 8px;
-                                for log in root.logs : Text {
+                                for log in root.logs : LineEdit {
                                     text: "> " + log;
-                                    color: #00ff00; // Terminal Green
+                                    read-only: true;
+                                    enabled: true;
+                                    height: 20px;
                                     font-size: 12px;
-                                    wrap: word-wrap;
+                                    placeholder-text: ""; 
+                                    // Customizing look to mimic terminal text
+                                    // Note: Slint LineEdit styling is limited in standard widget set
                                 }
                             }
                         }
