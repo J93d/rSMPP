@@ -94,6 +94,7 @@ enum Cmd {
 
 enum WriterCmd {
     Write(Vec<u8>),
+    Close,
 }
 
 // Dangerous Verifier to skip certificate validation
@@ -231,6 +232,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                                 break;
                                                             }
                                                         }
+                                                        WriterCmd::Close => break,
                                                     }
                                                 }
                                                 None => break,
@@ -348,6 +350,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                         CMD_UNBIND_RESP => { // 0x80000006
                                                             let _ = tx_ui_read.send(UiEvent::Log("Unbind Response Received".to_string())).await;
                                                             let _ = tx_ui_read.send(UiEvent::ConnectionStatus("Disconnected".to_string(), false)).await;
+                                                            if let Some(tx_w) = &tx_writer_read {
+                                                                let _ = tx_w.send(WriterCmd::Close).await;
+                                                            }
+                                                            break;
                                                         },
                                                         CMD_ENQUIRE_LINK_RESP | CMD_ENQUIRE_LINK => {
                                                              // Ignore
