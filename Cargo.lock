@@ -3642,9 +3642,10 @@ checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
 
 [[package]]
 name = "rSMPP"
-version = "0.1.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "image 0.24.9",
  "once_cell",
  "rand 0.8.5",
@@ -4382,8 +4383,9 @@ dependencies = [
 
 [[package]]
 name = "smpp-codec"
-version = "0.2.0"
-source = "git+https://github.com/J93d/smpp-codec.git#08e337e5a393e6e19dfaf5cb4b6aae12c42a6cbe"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ffcb4d141aa9dbf7372da9dde4d49dbc28006736432d68e306a7599c28410fc"
 dependencies = [
  "rand 0.9.2",
 ]
