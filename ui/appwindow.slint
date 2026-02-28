@@ -33,6 +33,54 @@ component LabelledInput inherits VerticalLayout {
     }
 }
 
+// --- REUSABLE COMPONENT: STYLED CHECKBOX ---
+component StyledCheckBox inherits Rectangle {
+    in property <string> text;
+    in-out property <bool> checked: false;
+    
+    height: 32px;
+    
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+
+        VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 18px;
+                height: 18px;
+                border-width: 1px;
+                border-color: root.checked ? Palette.primary : Palette.border;
+                border-radius: 4px;
+                background: root.checked ? Palette.primary : transparent;
+
+                if (root.checked) : Path {
+                    width: 10px;
+                    height: 8px;
+                    x: 4px;
+                    y: 5px;
+                    stroke: Palette.background;
+                    stroke-width: 2px;
+                    commands: "M 0 4 L 3 7 L 10 0";
+                }
+            }
+        }
+
+        Text {
+            text: root.text;
+            color: Palette.text;
+            font-size: 13px;
+            vertical-alignment: center;
+        }
+    }
+
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.checked = !root.checked; }
+    }
+}
+
 // --- REUSABLE COMPONENT: CARD CONTAINER ---
 component Card inherits Rectangle {
     in property <string> title;
@@ -156,7 +204,7 @@ export component AppWindow inherits Window {
                         alignment: center;
                         padding-top: 20px;
                         horizontal-stretch: 1;
-                        ssl_check := CheckBox { text: "Use TLS"; height: 32px; }
+                        ssl_check := StyledCheckBox { text: "Use TLS"; }
                     }
 
                     // Bind Mode
@@ -256,7 +304,7 @@ export component AppWindow inherits Window {
                     VerticalLayout {
                         alignment: end;
                         horizontal-stretch: 1; // Don't stretch
-                        dlr_check := CheckBox { text: "DLR"; checked: true; height: 32px; }
+                        dlr_check := StyledCheckBox { text: "DLR"; checked: true; }
                     }
                 }
 
