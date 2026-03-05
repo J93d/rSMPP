@@ -52,7 +52,7 @@ async fn main() -> Result<(), slint::PlatformError> {
     // Connect Link
     let tx = tx_cmd.clone();
     ui.on_connect(move |ip, port, sys_id, pass, mode, start_tls| {
-        let _ = tx.blocking_send(Cmd::Connect {
+        let _ = tx.try_send(Cmd::Connect {
             ip: ip.into(),
             port: port.into(),
             system_id: sys_id.into(),
@@ -65,7 +65,7 @@ async fn main() -> Result<(), slint::PlatformError> {
     // Unbind Link
     let tx = tx_cmd.clone();
     ui.on_unbind(move || {
-        let _ = tx.blocking_send(Cmd::Unbind);
+        let _ = tx.try_send(Cmd::Unbind);
     });
 
     // Send Message
@@ -84,7 +84,7 @@ async fn main() -> Result<(), slint::PlatformError> {
               dcs,
               validity,
               dlr| {
-            let _ = tx.blocking_send(Cmd::SendMessage {
+            let _ = tx.try_send(Cmd::SendMessage {
                 source: source.into(),
                 src_ton: src_ton.into(),
                 src_npi: src_npi.into(),
@@ -105,7 +105,7 @@ async fn main() -> Result<(), slint::PlatformError> {
     // Query SM
     let tx = tx_cmd.clone();
     ui.on_query_sm(move |msg_id, source, ton, npi| {
-        let _ = tx.blocking_send(Cmd::QuerySm {
+        let _ = tx.try_send(Cmd::QuerySm {
             msg_id: msg_id.into(),
             source: source.into(),
             ton: ton.into(),
@@ -117,7 +117,7 @@ async fn main() -> Result<(), slint::PlatformError> {
     let tx = tx_cmd.clone();
     ui.on_cancel_sm(
         move |msg_id, source, src_ton, src_npi, dest, dest_ton, dest_npi| {
-            let _ = tx.blocking_send(Cmd::CancelSm {
+            let _ = tx.try_send(Cmd::CancelSm {
                 msg_id: msg_id.into(),
                 source: source.into(),
                 src_ton: src_ton.into(),
@@ -132,7 +132,7 @@ async fn main() -> Result<(), slint::PlatformError> {
     // Replace SM
     let tx = tx_cmd.clone();
     ui.on_replace_sm(move |msg_id, source, src_ton, src_npi, message| {
-        let _ = tx.blocking_send(Cmd::ReplaceSm {
+        let _ = tx.try_send(Cmd::ReplaceSm {
             msg_id: msg_id.into(),
             source: source.into(),
             src_ton: src_ton.into(),
