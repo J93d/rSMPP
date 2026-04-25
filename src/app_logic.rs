@@ -14,7 +14,7 @@ use smpp_codec::common::{
 use smpp_codec::common::{CMD_CANCEL_SM_RESP, CMD_QUERY_SM_RESP, CMD_REPLACE_SM_RESP};
 use smpp_codec::pdus::{
     BindResponse, CancelSmResponse, DeliverSmRequest, DeliverSmResponse, EnquireLinkRequest,
-    QuerySmResponse, ReplaceSmResp, SubmitMultiResp, SubmitSmResponse,
+    EnquireLinkResponse, QuerySmResponse, ReplaceSmResp, SubmitMultiResp, SubmitSmResponse,
 };
 
 use crate::network::NetworkConnector;
@@ -88,6 +88,8 @@ pub async fn run_main_loop(
     network_connector: Arc<dyn NetworkConnector>,
 ) {
     let mut tx_writer: Option<mpsc::Sender<WriterCmd>> = None;
+    let mut writer_task: Option<tokio::task::JoinHandle<()>> = None;
+    let mut reader_task: Option<tokio::task::JoinHandle<()>> = None;
 
     while let Some(cmd) = rx_cmd.recv().await {
         match cmd {
@@ -100,6 +102,17 @@ pub async fn run_main_loop(
                 use_ssl,
             } => {
                 let addr = format!("{}:{}", ip, port);
+
+                // Shut down any existing connection tasks before reconnecting
+                if let Some(tx) = tx_writer.take() {
+                    let _ = tx.send(WriterCmd::Close).await;
+                }
+                if let Some(handle) = writer_task.take() {
+                    handle.abort();
+                }
+                if let Some(handle) = reader_task.take() {
+                    handle.abort();
+                }
 
                 match network_connector.connect(&ip, &port, use_ssl).await {
                     Ok((mut reader, mut writer)) => {
@@ -117,7 +130,7 @@ pub async fn run_main_loop(
                         tx_writer = Some(tx_w.clone());
 
                         let tx_ui_clone = tx_ui.clone();
-                        tokio::spawn(async move {
+                        let w_handle = tokio::spawn(async move {
                             let mut interval = time::interval(Duration::from_secs(5));
                             loop {
                                 select! {
@@ -154,12 +167,13 @@ pub async fn run_main_loop(
                                 }
                             }
                         });
+                        writer_task = Some(w_handle);
 
                         // Reader Task
                         let tx_ui_read = tx_ui.clone();
                         let tx_writer_read = tx_writer.clone();
 
-                        tokio::spawn(async move {
+                        let r_handle = tokio::spawn(async move {
                             let mut buffer = vec![0u8; 1024];
                             loop {
                                 let mut len_buf = [0u8; 4];
@@ -383,8 +397,26 @@ pub async fn run_main_loop(
                                                         }
                                                         break;
                                                     }
-                                                    CMD_ENQUIRE_LINK_RESP | CMD_ENQUIRE_LINK => {
-                                                        // Ignore
+                                                    CMD_ENQUIRE_LINK_RESP => {
+                                                        // Heartbeat acknowledgment — nothing to do
+                                                    }
+                                                    CMD_ENQUIRE_LINK => {
+                                                        // Respond to server's heartbeat
+                                                        let seq = u32::from_be_bytes([
+                                                            buffer[12], buffer[13], buffer[14],
+                                                            buffer[15],
+                                                        ]);
+                                                        let resp = EnquireLinkResponse::new(
+                                                            seq, "ESME_ROK",
+                                                        );
+                                                        let mut pdu = Vec::new();
+                                                        if resp.encode(&mut pdu).is_ok()
+                                                            && let Some(tx_w) = &tx_writer_read
+                                                        {
+                                                            let _ = tx_w
+                                                                .send(WriterCmd::Write(pdu))
+                                                                .await;
+                                                        }
                                                     }
                                                     _ => {
                                                         let _ = tx_ui_read
@@ -409,6 +441,10 @@ pub async fn run_main_loop(
                                                         false,
                                                     ))
                                                     .await;
+                                                // Signal the writer task to stop
+                                                if let Some(tx_w) = &tx_writer_read {
+                                                    let _ = tx_w.send(WriterCmd::Close).await;
+                                                }
                                                 break;
                                             }
                                         }
@@ -425,11 +461,16 @@ pub async fn run_main_loop(
                                                 false,
                                             ))
                                             .await;
+                                        // Signal the writer task to stop
+                                        if let Some(tx_w) = &tx_writer_read {
+                                            let _ = tx_w.send(WriterCmd::Close).await;
+                                        }
                                         break;
                                     }
                                 }
                             }
                         });
+                        reader_task = Some(r_handle);
 
                         let pdu = PduFactory::create_bind_request(
                             rand::thread_rng().gen_range(1..10000),
