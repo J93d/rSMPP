@@ -11,6 +11,11 @@ A modern, high-performance, and secure SMPP v3.4 client built with Rust and Slin
 -   **Responsive**: Adapts perfectly to different window sizes (min-width derived).
 -   **Interactive Logs**: Transaction logs are selectable and copyable for easy debugging.
 
+### ⚡ Performance & Stability
+-   **Efficient Rendering**: Utilizes a single read-only text widget for logs to prevent UI lockups.
+-   **Memory Management**: O(1) memory complexity log tracking with bounded string length.
+-   **Backpressure Handling**: Non-blocking channel pushes (`try_send`) prevent I/O deadlocks during heavy load.
+
 ### 🔒 Security & Connectivity
 -   **TLS 1.2 / 1.3 Support**: Secure connections using `rustls`.
 -   **Flexible SSL**: "Use SSL" toggle for secure vs plain TCP connections.

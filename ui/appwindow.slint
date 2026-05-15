@@ -81,6 +81,35 @@ component StyledCheckBox inherits Rectangle {
     }
 }
 
+// --- REUSABLE COMPONENT: STYLED BUTTON ---
+component StyledButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    callback clicked <=> ta.clicked;
+
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: root.primary ? Palette.primary.darker(20%) : Palette.border;
+    
+    background: root.primary ? 
+        (ta.pressed ? Palette.primary.darker(30%) : ta.has-hover ? Palette.primary.brighter(10%) : Palette.primary) :
+        (ta.pressed ? Palette.surface.darker(30%) : ta.has-hover ? Palette.surface.brighter(10%) : Palette.surface);
+
+    // Press down animation
+    y: ta.pressed ? 1px : 0px;
+
+    Text {
+        text: root.text;
+        color: root.primary ? #ffffff : Palette.text;
+        font-weight: 600;
+        font-size: 13px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea { }
+}
+
 // --- REUSABLE COMPONENT: CARD CONTAINER ---
 component Card inherits Rectangle {
     in property <string> title;
@@ -128,7 +157,7 @@ export component AppWindow inherits Window {
     // --- PROPERTIES ---
     in property <string> connection_status: "Disconnected";
     in property <bool> is_connected: false;
-    in property <[string]> logs: [];
+    in property <string> log_text: "";
 
     ScrollView {
         width: 100%;
@@ -136,19 +165,32 @@ export component AppWindow inherits Window {
         viewport-width: parent.width; // Prevent horizontal scroll
 
         VerticalBox {
-            padding: 20px;
-            spacing: 20px;
+            padding: 15px;
+            spacing: 15px;
             alignment: start;
 
             // --- HEADER SECTION ---
             HorizontalLayout {
                 spacing: 10px;
-                Text {
-                    text: "rSMPP Client";
-                    font-size: 24px;
-                    font-weight: 800;
-                    color: Palette.text;
-                    vertical-alignment: center;
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+                    Text {
+                        text: "rSMPP Client";
+                        font-size: 24px;
+                        font-weight: 800;
+                        color: Palette.text;
+                        vertical-alignment: top;
+                    }
+                    VerticalLayout {
+                        alignment: start;
+                        padding-top: 7px; // Pushes it down slightly to match the cap height of the 24px font
+                        Text {
+                            text: "v0.6.8";
+                            font-size: 10px;
+                            color: Palette.text-muted;
+                        }
+                    }
                 }
                 
                 Rectangle { horizontal-stretch: 1; } // Spacer
@@ -223,7 +265,7 @@ export component AppWindow inherits Window {
                     VerticalLayout {
                         horizontal-stretch: 1;
                         alignment: end;
-                        Button {
+                        StyledButton {
                             text: root.is_connected ? "Disconnect" : "Connect";
                             primary: !root.is_connected;
                             height: 32px;
@@ -308,7 +350,7 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                Button {
+                StyledButton {
                     text: "Send Message";
                     height: 40px;
                     primary: true;
@@ -372,7 +414,7 @@ export component AppWindow inherits Window {
                     spacing: 10px;
                     padding-top: 5px;
 
-                    Button {
+                    StyledButton {
                         text: "Query SM";
                         height: 32px;
                         primary: true;
@@ -381,7 +423,7 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    Button {
+                    StyledButton {
                         text: "Cancel SM";
                         height: 32px;
                         primary: true;
@@ -394,7 +436,7 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    Button {
+                    StyledButton {
                         text: "Replace SM";
                         height: 32px;
                         primary: true;
@@ -408,7 +450,6 @@ export component AppWindow inherits Window {
                     }
                 }
             }
-
             // --- TERMINAL / LOGS ---
             Card {
                 title: "Transaction Logs";
@@ -419,25 +460,15 @@ export component AppWindow inherits Window {
                         border-color: Palette.border;
                         border-width: 1px;
                         height: 150px;
-                        clip: true;
 
-                        ScrollView {
-                            viewport-y: self.viewport-height > self.height ? self.height - self.viewport-height : 0px;
-                            VerticalBox {
-                                alignment: start;
-                                spacing: 2px;
-                                padding: 8px;
-                                for log in root.logs : LineEdit {
-                                    text: "> " + log;
-                                    read-only: true;
-                                    enabled: true;
-                                    height: 20px;
-                                    font-size: 12px;
-                                    placeholder-text: ""; 
-                                    // Customizing look to mimic terminal text
-                                    // Note: Slint LineEdit styling is limited in standard widget set
-                                }
-                            }
+                        // TextEdit has built-in scrolling; no wrapping ScrollView needed
+                        // (ScrollView + TextEdit with no fixed height causes layout recursion)
+                        log_view := TextEdit {
+                            text: root.log_text;
+                            read-only: true;
+                            font-size: 12px;
+                            width: parent.width;
+                            height: parent.height;
                         }
                     }
                 }

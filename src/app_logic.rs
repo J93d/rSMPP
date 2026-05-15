@@ -92,6 +92,23 @@ pub async fn run_main_loop(
     let mut reader_task: Option<tokio::task::JoinHandle<()>> = None;
 
     while let Some(cmd) = rx_cmd.recv().await {
+        // Clean up stale connection state if tasks have terminated
+        if let Some(handle) = writer_task.as_ref()
+            && handle.is_finished()
+        {
+            writer_task = None;
+            tx_writer = None;
+        }
+        if let Some(handle) = reader_task.as_ref()
+            && handle.is_finished()
+        {
+            reader_task = None;
+            // Writer may still be running; signal it to close
+            if let Some(tx) = tx_writer.take() {
+                let _ = tx.try_send(WriterCmd::Close);
+            }
+        }
+
         match cmd {
             Cmd::Connect {
                 ip,
@@ -116,12 +133,10 @@ pub async fn run_main_loop(
 
                 match network_connector.connect(&ip, &port, use_ssl).await {
                     Ok((mut reader, mut writer)) => {
-                        let _ = tx_ui
-                            .send(UiEvent::Log(format!(
-                                "Connected to {} (SSL: {})",
-                                addr, use_ssl
-                            )))
-                            .await;
+                        let _ = tx_ui.try_send(UiEvent::Log(format!(
+                            "Connected to {} (SSL: {})",
+                            addr, use_ssl
+                        )));
                         let _ = tx_ui
                             .send(UiEvent::ConnectionStatus("Connected".to_string(), true))
                             .await;
@@ -132,6 +147,11 @@ pub async fn run_main_loop(
                         let tx_ui_clone = tx_ui.clone();
                         let w_handle = tokio::spawn(async move {
                             let mut interval = time::interval(Duration::from_secs(5));
+                            // Skip the immediate first tick so the heartbeat doesn't
+                            // fire before the bind request, and use Delay to avoid
+                            // burst-firing missed ticks inside the select! loop.
+                            interval.tick().await;
+                            interval.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
                             loop {
                                 select! {
                                     cmd = rx_w.recv() => {
@@ -140,7 +160,7 @@ pub async fn run_main_loop(
                                                 match w_cmd {
                                                     WriterCmd::Write(data) => {
                                                         if let Err(e) = writer.write_all(&data).await {
-                                                            let _ = tx_ui_clone.send(UiEvent::Log(format!("Write Error: {}", e))).await;
+                                                            let _ = tx_ui_clone.try_send(UiEvent::Log(format!("Write Error: {}", e)));
                                                             let _ = tx_ui_clone.send(UiEvent::ConnectionStatus("Disconnected".to_string(), false)).await;
                                                             break;
                                                         }
@@ -158,7 +178,7 @@ pub async fn run_main_loop(
                                         #[allow(clippy::collapsible_if)]
                                         if req.encode(&mut pdu).is_ok() {
                                             if let Err(e) = writer.write_all(&pdu).await {
-                                                 let _ = tx_ui_clone.send(UiEvent::Log(format!("Heartbeat Error: {}", e))).await;
+                                                 let _ = tx_ui_clone.try_send(UiEvent::Log(format!("Heartbeat Error: {}", e)));
                                                  let _ = tx_ui_clone.send(UiEvent::ConnectionStatus("Disconnected".to_string(), false)).await;
                                                  break;
                                             }
@@ -181,12 +201,10 @@ pub async fn run_main_loop(
                                     Ok(_) => {
                                         let len = u32::from_be_bytes(len_buf) as usize;
                                         if !(4..=65536).contains(&len) {
-                                            let _ = tx_ui_read
-                                                .send(UiEvent::Log(format!(
-                                                    "Invalid PDU length: {}",
-                                                    len
-                                                )))
-                                                .await;
+                                            let _ = tx_ui_read.try_send(UiEvent::Log(format!(
+                                                "Invalid PDU length: {}",
+                                                len
+                                            )));
                                             break;
                                         }
 
@@ -206,21 +224,21 @@ pub async fn run_main_loop(
                                                     | CMD_BIND_TRANSCEIVER_RESP => {
                                                         match BindResponse::decode(&buffer[..len]) {
                                                             Ok(resp) => {
-                                                                let _ = tx_ui_read
-                                                                    .send(UiEvent::Log(format!(
+                                                                let _ = tx_ui_read.try_send(
+                                                                    UiEvent::Log(format!(
                                                                         "Bind Resp: {} ({})",
                                                                         resp.status_description,
                                                                         resp.command_status
-                                                                    )))
-                                                                    .await;
+                                                                    )),
+                                                                );
                                                             }
                                                             Err(e) => {
-                                                                let _ = tx_ui_read
-                                                                    .send(UiEvent::Log(format!(
+                                                                let _ = tx_ui_read.try_send(
+                                                                    UiEvent::Log(format!(
                                                                         "Parse Error: {:?}",
                                                                         e
-                                                                    )))
-                                                                    .await;
+                                                                    )),
+                                                                );
                                                             }
                                                         }
                                                     }
@@ -229,15 +247,15 @@ pub async fn run_main_loop(
                                                             &buffer[..len],
                                                         ) {
                                                             Ok(resp) => {
-                                                                let _ = tx_ui_read.send(UiEvent::Log(format!("Submit Resp: {} (Msg ID: {})", resp.status_description, resp.message_id))).await;
+                                                                let _ = tx_ui_read.try_send(UiEvent::Log(format!("Submit Resp: {} (Msg ID: {})", resp.status_description, resp.message_id)));
                                                             }
                                                             Err(e) => {
-                                                                let _ = tx_ui_read
-                                                                    .send(UiEvent::Log(format!(
+                                                                let _ = tx_ui_read.try_send(
+                                                                    UiEvent::Log(format!(
                                                                         "Parse Error: {:?}",
                                                                         e
-                                                                    )))
-                                                                    .await;
+                                                                    )),
+                                                                );
                                                             }
                                                         }
                                                     }
@@ -257,17 +275,17 @@ pub async fn run_main_loop(
                                                                         resp.unsuccess_smes.len()
                                                                     ));
                                                                 }
-                                                                let _ = tx_ui_read
-                                                                    .send(UiEvent::Log(log_msg))
-                                                                    .await;
+                                                                let _ = tx_ui_read.try_send(
+                                                                    UiEvent::Log(log_msg),
+                                                                );
                                                             }
                                                             Err(e) => {
-                                                                let _ = tx_ui_read
-                                                                    .send(UiEvent::Log(format!(
+                                                                let _ = tx_ui_read.try_send(
+                                                                    UiEvent::Log(format!(
                                                                         "Parse Error: {:?}",
                                                                         e
-                                                                    )))
-                                                                    .await;
+                                                                    )),
+                                                                );
                                                             }
                                                         }
                                                     }
@@ -276,15 +294,15 @@ pub async fn run_main_loop(
                                                             &buffer[..len],
                                                         ) {
                                                             Ok(resp) => {
-                                                                let _ = tx_ui_read.send(UiEvent::Log(format!("Query Resp: {} (State: {:?}, Err: {})", resp.status_description, resp.message_state, resp.error_code))).await;
+                                                                let _ = tx_ui_read.try_send(UiEvent::Log(format!("Query Resp: {} (State: {:?}, Err: {})", resp.status_description, resp.message_state, resp.error_code)));
                                                             }
                                                             Err(e) => {
-                                                                let _ = tx_ui_read
-                                                                    .send(UiEvent::Log(format!(
+                                                                let _ = tx_ui_read.try_send(
+                                                                    UiEvent::Log(format!(
                                                                         "Parse Error: {:?}",
                                                                         e
-                                                                    )))
-                                                                    .await;
+                                                                    )),
+                                                                );
                                                             }
                                                         }
                                                     }
@@ -293,20 +311,20 @@ pub async fn run_main_loop(
                                                             &buffer[..len],
                                                         ) {
                                                             Ok(resp) => {
-                                                                let _ = tx_ui_read
-                                                                    .send(UiEvent::Log(format!(
+                                                                let _ = tx_ui_read.try_send(
+                                                                    UiEvent::Log(format!(
                                                                         "Cancel Resp: {}",
                                                                         resp.status_description
-                                                                    )))
-                                                                    .await;
+                                                                    )),
+                                                                );
                                                             }
                                                             Err(e) => {
-                                                                let _ = tx_ui_read
-                                                                    .send(UiEvent::Log(format!(
+                                                                let _ = tx_ui_read.try_send(
+                                                                    UiEvent::Log(format!(
                                                                         "Parse Error: {:?}",
                                                                         e
-                                                                    )))
-                                                                    .await;
+                                                                    )),
+                                                                );
                                                             }
                                                         }
                                                     }
@@ -314,20 +332,20 @@ pub async fn run_main_loop(
                                                         match ReplaceSmResp::decode(&buffer[..len])
                                                         {
                                                             Ok(resp) => {
-                                                                let _ = tx_ui_read
-                                                                    .send(UiEvent::Log(format!(
+                                                                let _ = tx_ui_read.try_send(
+                                                                    UiEvent::Log(format!(
                                                                         "Replace Resp: {}",
                                                                         resp.status_description
-                                                                    )))
-                                                                    .await;
+                                                                    )),
+                                                                );
                                                             }
                                                             Err(e) => {
-                                                                let _ = tx_ui_read
-                                                                    .send(UiEvent::Log(format!(
+                                                                let _ = tx_ui_read.try_send(
+                                                                    UiEvent::Log(format!(
                                                                         "Parse Error: {:?}",
                                                                         e
-                                                                    )))
-                                                                    .await;
+                                                                    )),
+                                                                );
                                                             }
                                                         }
                                                     }
@@ -353,9 +371,9 @@ pub async fn run_main_loop(
                                                                     short_msg
                                                                 ));
 
-                                                                let _ = tx_ui_read
-                                                                    .send(UiEvent::Log(log_msg))
-                                                                    .await;
+                                                                let _ = tx_ui_read.try_send(
+                                                                    UiEvent::Log(log_msg),
+                                                                );
 
                                                                 // Send Response
                                                                 let resp = DeliverSmResponse::new(
@@ -373,18 +391,15 @@ pub async fn run_main_loop(
                                                                 }
                                                             }
                                                             Err(e) => {
-                                                                let _ = tx_ui_read.send(UiEvent::Log(format!("DeliverSM Parse Error: {:?}", e))).await;
+                                                                let _ = tx_ui_read.try_send(UiEvent::Log(format!("DeliverSM Parse Error: {:?}", e)));
                                                             }
                                                         }
                                                     }
                                                     CMD_UNBIND_RESP => {
                                                         // 0x80000006
-                                                        let _ = tx_ui_read
-                                                            .send(UiEvent::Log(
-                                                                "Unbind Response Received"
-                                                                    .to_string(),
-                                                            ))
-                                                            .await;
+                                                        let _ = tx_ui_read.try_send(UiEvent::Log(
+                                                            "Unbind Response Received".to_string(),
+                                                        ));
                                                         let _ = tx_ui_read
                                                             .send(UiEvent::ConnectionStatus(
                                                                 "Disconnected".to_string(),
@@ -419,22 +434,20 @@ pub async fn run_main_loop(
                                                         }
                                                     }
                                                     _ => {
-                                                        let _ = tx_ui_read
-                                                            .send(UiEvent::Log(format!(
+                                                        let _ = tx_ui_read.try_send(UiEvent::Log(
+                                                            format!(
                                                                 "Recv PDU: CmdID 0x{:08X}",
                                                                 cmd_id
-                                                            )))
-                                                            .await;
+                                                            ),
+                                                        ));
                                                     }
                                                 }
                                             }
                                             Err(e) => {
-                                                let _ = tx_ui_read
-                                                    .send(UiEvent::Log(format!(
-                                                        "Read Error Body: {}",
-                                                        e
-                                                    )))
-                                                    .await;
+                                                let _ = tx_ui_read.try_send(UiEvent::Log(format!(
+                                                    "Read Error Body: {}",
+                                                    e
+                                                )));
                                                 let _ = tx_ui_read
                                                     .send(UiEvent::ConnectionStatus(
                                                         "Disconnected".to_string(),
@@ -450,11 +463,9 @@ pub async fn run_main_loop(
                                         }
                                     }
                                     Err(_) => {
-                                        let _ = tx_ui_read
-                                            .send(UiEvent::Log(
-                                                "Connection closed by peer".to_string(),
-                                            ))
-                                            .await;
+                                        let _ = tx_ui_read.try_send(UiEvent::Log(
+                                            "Connection closed by peer".to_string(),
+                                        ));
                                         let _ = tx_ui_read
                                             .send(UiEvent::ConnectionStatus(
                                                 "Disconnected".to_string(),
@@ -485,9 +496,7 @@ pub async fn run_main_loop(
                             .await;
                     }
                     Err(e) => {
-                        let _ = tx_ui
-                            .send(UiEvent::Log(format!("Failed to connect: {}", e)))
-                            .await;
+                        let _ = tx_ui.try_send(UiEvent::Log(format!("Failed to connect: {}", e)));
                         let _ = tx_ui
                             .send(UiEvent::ConnectionStatus("Disconnected".to_string(), false))
                             .await;
@@ -496,9 +505,7 @@ pub async fn run_main_loop(
             }
             Cmd::Unbind => {
                 if let Some(tx) = &tx_writer {
-                    let _ = tx_ui
-                        .send(UiEvent::Log("Sending Unbind...".to_string()))
-                        .await;
+                    let _ = tx_ui.try_send(UiEvent::Log("Sending Unbind...".to_string()));
                     let pdu =
                         PduFactory::create_unbind_request(rand::thread_rng().gen_range(1..10000));
                     let _ = tx.send(WriterCmd::Write(pdu)).await;
@@ -542,32 +549,27 @@ pub async fn run_main_loop(
                             for (i, pdu) in pdus.into_iter().enumerate() {
                                 let _ = tx.send(WriterCmd::Write(pdu)).await;
                                 if dest.contains(',') {
-                                    let _ = tx_ui
-                                        .send(UiEvent::Log(format!(
-                                            "Sent Multi-Seg {}/{}",
-                                            i + 1,
-                                            total
-                                        )))
-                                        .await;
+                                    let _ = tx_ui.try_send(UiEvent::Log(format!(
+                                        "Sent Multi-Seg {}/{}",
+                                        i + 1,
+                                        total
+                                    )));
                                 } else {
-                                    let _ = tx_ui
-                                        .send(UiEvent::Log(format!(
-                                            "Sent Segment {}/{}",
-                                            i + 1,
-                                            total
-                                        )))
-                                        .await;
+                                    let _ = tx_ui.try_send(UiEvent::Log(format!(
+                                        "Sent Segment {}/{}",
+                                        i + 1,
+                                        total
+                                    )));
                                 }
                             }
                         }
                         Err(e) => {
-                            let _ = tx_ui
-                                .send(UiEvent::Log(format!("Error creating PDUs: {}", e)))
-                                .await;
+                            let _ =
+                                tx_ui.try_send(UiEvent::Log(format!("Error creating PDUs: {}", e)));
                         }
                     }
                 } else {
-                    let _ = tx_ui.send(UiEvent::Log("Not connected".to_string())).await;
+                    let _ = tx_ui.try_send(UiEvent::Log("Not connected".to_string()));
                 }
             }
             Cmd::QuerySm {
@@ -585,7 +587,7 @@ pub async fn run_main_loop(
                         &npi,
                     );
                     let _ = tx.send(WriterCmd::Write(pdu)).await;
-                    let _ = tx_ui.send(UiEvent::Log("Sent QuerySm".to_string())).await;
+                    let _ = tx_ui.try_send(UiEvent::Log("Sent QuerySm".to_string()));
                 }
             }
             Cmd::CancelSm {
@@ -609,7 +611,7 @@ pub async fn run_main_loop(
                         &dest_npi,
                     );
                     let _ = tx.send(WriterCmd::Write(pdu)).await;
-                    let _ = tx_ui.send(UiEvent::Log("Sent CancelSm".to_string())).await;
+                    let _ = tx_ui.try_send(UiEvent::Log("Sent CancelSm".to_string()));
                 }
             }
             Cmd::ReplaceSm {
@@ -629,7 +631,7 @@ pub async fn run_main_loop(
                         &message,
                     );
                     let _ = tx.send(WriterCmd::Write(pdu)).await;
-                    let _ = tx_ui.send(UiEvent::Log("Sent ReplaceSm".to_string())).await;
+                    let _ = tx_ui.try_send(UiEvent::Log("Sent ReplaceSm".to_string()));
                 }
             }
         }

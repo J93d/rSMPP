@@ -5,10 +5,12 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 slint::include_modules!();
-use slint::Model;
 
 use rSMPP::app_logic::{Cmd, UiEvent, run_main_loop};
 use rSMPP::network::RealNetworkConnector;
+
+/// Maximum number of log lines retained in the UI terminal.
+const MAX_LOG_LINES: u32 = 500;
 
 #[tokio::main]
 async fn main() -> Result<(), slint::PlatformError> {
@@ -24,19 +26,29 @@ async fn main() -> Result<(), slint::PlatformError> {
     });
 
     let ui_handle = ui.as_weak();
+    let line_count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
     let _ui_update_handle = slint::spawn_local(async move {
+        let line_count = line_count.clone();
         while let Some(event) = rx_ui.recv().await {
             let ui_weak = ui_handle.clone();
+            let line_count = line_count.clone();
             let _ = slint::invoke_from_event_loop(move || match event {
                 UiEvent::Log(msg) => {
                     if let Some(ui) = ui_weak.upgrade() {
-                        let mut logs: Vec<slint::SharedString> = ui.get_logs().iter().collect();
-                        logs.push(msg.into());
-                        if logs.len() > 100 {
-                            logs.remove(0);
+                        let mut current = ui.get_log_text().to_string();
+                        current.push_str("> ");
+                        current.push_str(&msg);
+                        current.push('\n');
+                        let count =
+                            line_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                        // Trim the oldest line when exceeding the cap
+                        if count > MAX_LOG_LINES {
+                            if let Some(pos) = current.find('\n') {
+                                current = current[pos + 1..].to_string();
+                            }
+                            line_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                         }
-                        let model = std::rc::Rc::new(slint::VecModel::from(logs));
-                        ui.set_logs(model.into());
+                        ui.set_log_text(current.into());
                     }
                 }
                 UiEvent::ConnectionStatus(status, connected) => {
