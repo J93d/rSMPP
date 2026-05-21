@@ -194,17 +194,51 @@ pub async fn run_main_loop(
                         let tx_writer_read = tx_writer.clone();
 
                         let r_handle = tokio::spawn(async move {
+                            // Timeout for individual PDU reads; prevents hanging on partial
+                            // packets from a misbehaving or crashing SMSC.
+                            const READ_TIMEOUT: Duration = Duration::from_secs(30);
                             let mut buffer = vec![0u8; 1024];
                             loop {
                                 let mut len_buf = [0u8; 4];
-                                match reader.read_exact(&mut len_buf).await {
+                                // --- Read PDU header (4-byte length prefix) ---
+                                let header_result =
+                                    time::timeout(READ_TIMEOUT, reader.read_exact(&mut len_buf))
+                                        .await;
+                                let read_header = match header_result {
+                                    Ok(inner) => inner,
+                                    Err(_elapsed) => {
+                                        let _ = tx_ui_read.try_send(UiEvent::Log(
+                                            "Read timeout waiting for PDU header — disconnecting"
+                                                .to_string(),
+                                        ));
+                                        let _ = tx_ui_read
+                                            .send(UiEvent::ConnectionStatus(
+                                                "Disconnected".to_string(),
+                                                false,
+                                            ))
+                                            .await;
+                                        if let Some(tx_w) = &tx_writer_read {
+                                            let _ = tx_w.send(WriterCmd::Close).await;
+                                        }
+                                        break;
+                                    }
+                                };
+                                match read_header {
                                     Ok(_) => {
                                         let len = u32::from_be_bytes(len_buf) as usize;
                                         if !(4..=65536).contains(&len) {
                                             let _ = tx_ui_read.try_send(UiEvent::Log(format!(
-                                                "Invalid PDU length: {}",
-                                                len
+                                                "Invalid PDU length {len} — disconnecting"
                                             )));
+                                            let _ = tx_ui_read
+                                                .send(UiEvent::ConnectionStatus(
+                                                    "Disconnected".to_string(),
+                                                    false,
+                                                ))
+                                                .await;
+                                            if let Some(tx_w) = &tx_writer_read {
+                                                let _ = tx_w.send(WriterCmd::Close).await;
+                                            }
                                             break;
                                         }
 
@@ -213,7 +247,35 @@ pub async fn run_main_loop(
                                         }
                                         buffer[0..4].copy_from_slice(&len_buf);
 
-                                        match reader.read_exact(&mut buffer[4..len]).await {
+                                        // --- Read PDU body (remaining bytes after length) ---
+                                        let body_result = time::timeout(
+                                            READ_TIMEOUT,
+                                            reader.read_exact(&mut buffer[4..len]),
+                                        )
+                                        .await;
+                                        let read_body = match body_result {
+                                            Ok(inner) => inner,
+                                            Err(_elapsed) => {
+                                                let _ = tx_ui_read.try_send(UiEvent::Log(
+                                                    format!(
+                                                        "Read timeout waiting for PDU body \
+                                                         ({} bytes expected) — disconnecting",
+                                                        len - 4
+                                                    ),
+                                                ));
+                                                let _ = tx_ui_read
+                                                    .send(UiEvent::ConnectionStatus(
+                                                        "Disconnected".to_string(),
+                                                        false,
+                                                    ))
+                                                    .await;
+                                                if let Some(tx_w) = &tx_writer_read {
+                                                    let _ = tx_w.send(WriterCmd::Close).await;
+                                                }
+                                                break;
+                                            }
+                                        };
+                                        match read_body {
                                             Ok(_) => {
                                                 let cmd_id = u32::from_be_bytes([
                                                     buffer[4], buffer[5], buffer[6], buffer[7],
@@ -434,10 +496,19 @@ pub async fn run_main_loop(
                                                         }
                                                     }
                                                     _ => {
+                                                        // Unknown command ID: log the raw bytes so
+                                                        // the user can inspect the malformed PDU
+                                                        // without the reader blocking.
+                                                        let hex_preview: String = buffer
+                                                            [..len.min(32)]
+                                                            .iter()
+                                                            .map(|b| format!("{b:02X}"))
+                                                            .collect::<Vec<_>>()
+                                                            .join(" ");
                                                         let _ = tx_ui_read.try_send(UiEvent::Log(
                                                             format!(
-                                                                "Recv PDU: CmdID 0x{:08X}",
-                                                                cmd_id
+                                                                "Unknown PDU CmdID 0x{cmd_id:08X} \
+                                                                 ({len} bytes): {hex_preview}"
                                                             ),
                                                         ));
                                                     }
@@ -445,8 +516,7 @@ pub async fn run_main_loop(
                                             }
                                             Err(e) => {
                                                 let _ = tx_ui_read.try_send(UiEvent::Log(format!(
-                                                    "Read Error Body: {}",
-                                                    e
+                                                    "Read Error (PDU body): {e}"
                                                 )));
                                                 let _ = tx_ui_read
                                                     .send(UiEvent::ConnectionStatus(
@@ -462,10 +532,10 @@ pub async fn run_main_loop(
                                             }
                                         }
                                     }
-                                    Err(_) => {
-                                        let _ = tx_ui_read.try_send(UiEvent::Log(
-                                            "Connection closed by peer".to_string(),
-                                        ));
+                                    Err(e) => {
+                                        let _ = tx_ui_read.try_send(UiEvent::Log(format!(
+                                            "Read Error (PDU header): {e}"
+                                        )));
                                         let _ = tx_ui_read
                                             .send(UiEvent::ConnectionStatus(
                                                 "Disconnected".to_string(),
