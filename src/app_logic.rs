@@ -196,7 +196,7 @@ pub async fn run_main_loop(
                         let r_handle = tokio::spawn(async move {
                             // Timeout for individual PDU reads; prevents hanging on partial
                             // packets from a misbehaving or crashing SMSC.
-                            const READ_TIMEOUT: Duration = Duration::from_secs(30);
+                            const READ_TIMEOUT: Duration = Duration::from_secs(5);
                             let mut buffer = vec![0u8; 1024];
                             loop {
                                 let mut len_buf = [0u8; 4];
