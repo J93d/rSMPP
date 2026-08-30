@@ -310,7 +310,10 @@ async fn test_unknown_command_id_logs_and_continues() {
     pdu[0..4].copy_from_slice(&16u32.to_be_bytes()); // command_length
     pdu[4..8].copy_from_slice(&0xDEAD_BEEFu32.to_be_bytes()); // command_id
     // command_status and sequence_number remain zero
-    server_write.write_all(&pdu).await.expect("write unknown PDU");
+    server_write
+        .write_all(&pdu)
+        .await
+        .expect("write unknown PDU");
 
     // The reader should log about the unknown command ID
     let got_unknown_log = drain_until(&mut rx_ui, |ev| match ev {

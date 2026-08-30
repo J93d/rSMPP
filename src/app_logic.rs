@@ -1,4 +1,3 @@
-use rand::Rng;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::select;
@@ -16,6 +15,14 @@ use smpp_codec::pdus::{
     BindResponse, CancelSmResponse, DeliverSmRequest, DeliverSmResponse, EnquireLinkRequest,
     EnquireLinkResponse, QuerySmResponse, ReplaceSmResp, SubmitMultiResp, SubmitSmResponse,
 };
+
+use std::sync::atomic::{AtomicU32, Ordering};
+
+static SEQUENCE_COUNTER: AtomicU32 = AtomicU32::new(1);
+
+fn next_sequence_number() -> u32 {
+    SEQUENCE_COUNTER.fetch_add(1, Ordering::Relaxed)
+}
 
 use crate::network::NetworkConnector;
 use crate::pdu_factory::PduFactory;
@@ -171,10 +178,10 @@ pub async fn run_main_loop(
                                             None => break,
                                         }
                                     }
-                                    // Heartbeat Loop
-                                    _ = interval.tick() => {
-                                        let mut pdu = Vec::new();
-                                        let req = EnquireLinkRequest::new(rand::thread_rng().gen_range(1..10000));
+                                     // Heartbeat Loop
+                                     _ = interval.tick() => {
+                                         let mut pdu = Vec::new();
+                                         let req = EnquireLinkRequest::new(next_sequence_number());
                                         #[allow(clippy::collapsible_if)]
                                         if req.encode(&mut pdu).is_ok() {
                                             if let Err(e) = writer.write_all(&pdu).await {
@@ -256,13 +263,11 @@ pub async fn run_main_loop(
                                         let read_body = match body_result {
                                             Ok(inner) => inner,
                                             Err(_elapsed) => {
-                                                let _ = tx_ui_read.try_send(UiEvent::Log(
-                                                    format!(
-                                                        "Read timeout waiting for PDU body \
+                                                let _ = tx_ui_read.try_send(UiEvent::Log(format!(
+                                                    "Read timeout waiting for PDU body \
                                                          ({} bytes expected) — disconnecting",
-                                                        len - 4
-                                                    ),
-                                                ));
+                                                    len - 4
+                                                )));
                                                 let _ = tx_ui_read
                                                     .send(UiEvent::ConnectionStatus(
                                                         "Disconnected".to_string(),
@@ -553,17 +558,29 @@ pub async fn run_main_loop(
                         });
                         reader_task = Some(r_handle);
 
-                        let pdu = PduFactory::create_bind_request(
-                            rand::thread_rng().gen_range(1..10000),
+                        match PduFactory::create_bind_request(
+                            next_sequence_number(),
                             &bind_mode,
                             &system_id,
                             &password,
-                        );
-                        let _ = tx_writer
-                            .as_ref()
-                            .unwrap()
-                            .send(WriterCmd::Write(pdu))
-                            .await;
+                        ) {
+                            Ok(pdu) => {
+                                if let Some(tx) = tx_writer.as_ref() {
+                                    let _ = tx.send(WriterCmd::Write(pdu)).await;
+                                } else {
+                                    let _ = tx_ui.try_send(UiEvent::Log(
+                                        "Internal error: writer channel unavailable after connect"
+                                            .to_string(),
+                                    ));
+                                }
+                            }
+                            Err(e) => {
+                                let _ = tx_ui.try_send(UiEvent::Log(format!(
+                                    "Error creating bind PDU: {}",
+                                    e
+                                )));
+                            }
+                        }
                     }
                     Err(e) => {
                         let _ = tx_ui.try_send(UiEvent::Log(format!("Failed to connect: {}", e)));
@@ -576,9 +593,17 @@ pub async fn run_main_loop(
             Cmd::Unbind => {
                 if let Some(tx) = &tx_writer {
                     let _ = tx_ui.try_send(UiEvent::Log("Sending Unbind...".to_string()));
-                    let pdu =
-                        PduFactory::create_unbind_request(rand::thread_rng().gen_range(1..10000));
-                    let _ = tx.send(WriterCmd::Write(pdu)).await;
+                    match PduFactory::create_unbind_request(next_sequence_number()) {
+                        Ok(pdu) => {
+                            let _ = tx.send(WriterCmd::Write(pdu)).await;
+                        }
+                        Err(e) => {
+                            let _ = tx_ui.try_send(UiEvent::Log(format!(
+                                "Error creating unbind PDU: {}",
+                                e
+                            )));
+                        }
+                    }
                 }
             }
             Cmd::SendMessage {
@@ -597,7 +622,7 @@ pub async fn run_main_loop(
                 dlr,
             } => {
                 if let Some(tx) = &tx_writer {
-                    let start_seq_num = rand::thread_rng().gen_range(1..10000) as u32;
+                    let start_seq_num = next_sequence_number();
                     match PduFactory::create_submit_pdus(
                         start_seq_num,
                         &source,
@@ -649,15 +674,22 @@ pub async fn run_main_loop(
                 npi,
             } => {
                 if let Some(tx) = &tx_writer {
-                    let pdu = PduFactory::create_query_sm_request(
-                        rand::thread_rng().gen_range(1..10000),
+                    match PduFactory::create_query_sm_request(
+                        next_sequence_number(),
                         &msg_id,
                         &source,
                         &ton,
                         &npi,
-                    );
-                    let _ = tx.send(WriterCmd::Write(pdu)).await;
-                    let _ = tx_ui.try_send(UiEvent::Log("Sent QuerySm".to_string()));
+                    ) {
+                        Ok(pdu) => {
+                            let _ = tx.send(WriterCmd::Write(pdu)).await;
+                            let _ = tx_ui.try_send(UiEvent::Log("Sent QuerySm".to_string()));
+                        }
+                        Err(e) => {
+                            let _ = tx_ui
+                                .try_send(UiEvent::Log(format!("Error creating QuerySm: {}", e)));
+                        }
+                    }
                 }
             }
             Cmd::CancelSm {
@@ -670,8 +702,8 @@ pub async fn run_main_loop(
                 dest_npi,
             } => {
                 if let Some(tx) = &tx_writer {
-                    let pdu = PduFactory::create_cancel_sm_request(
-                        rand::thread_rng().gen_range(1..10000),
+                    match PduFactory::create_cancel_sm_request(
+                        next_sequence_number(),
                         &msg_id,
                         &source,
                         &src_ton,
@@ -679,9 +711,16 @@ pub async fn run_main_loop(
                         &dest,
                         &dest_ton,
                         &dest_npi,
-                    );
-                    let _ = tx.send(WriterCmd::Write(pdu)).await;
-                    let _ = tx_ui.try_send(UiEvent::Log("Sent CancelSm".to_string()));
+                    ) {
+                        Ok(pdu) => {
+                            let _ = tx.send(WriterCmd::Write(pdu)).await;
+                            let _ = tx_ui.try_send(UiEvent::Log("Sent CancelSm".to_string()));
+                        }
+                        Err(e) => {
+                            let _ = tx_ui
+                                .try_send(UiEvent::Log(format!("Error creating CancelSm: {}", e)));
+                        }
+                    }
                 }
             }
             Cmd::ReplaceSm {
@@ -692,16 +731,23 @@ pub async fn run_main_loop(
                 message,
             } => {
                 if let Some(tx) = &tx_writer {
-                    let pdu = PduFactory::create_replace_sm_request(
-                        rand::thread_rng().gen_range(1..10000),
+                    match PduFactory::create_replace_sm_request(
+                        next_sequence_number(),
                         &msg_id,
                         &source,
                         &src_ton,
                         &src_npi,
                         &message,
-                    );
-                    let _ = tx.send(WriterCmd::Write(pdu)).await;
-                    let _ = tx_ui.try_send(UiEvent::Log("Sent ReplaceSm".to_string()));
+                    ) {
+                        Ok(pdu) => {
+                            let _ = tx.send(WriterCmd::Write(pdu)).await;
+                            let _ = tx_ui.try_send(UiEvent::Log("Sent ReplaceSm".to_string()));
+                        }
+                        Err(e) => {
+                            let _ = tx_ui
+                                .try_send(UiEvent::Log(format!("Error creating ReplaceSm: {}", e)));
+                        }
+                    }
                 }
             }
         }

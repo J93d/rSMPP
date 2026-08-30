@@ -15,7 +15,7 @@ impl PduFactory {
         bind_mode: &str,
         system_id: &str,
         password: &str,
-    ) -> Vec<u8> {
+    ) -> Result<Vec<u8>, String> {
         let mode_enum = match bind_mode {
             "Transmitter" => BindMode::Transmitter,
             "Receiver" => BindMode::Receiver,
@@ -30,16 +30,17 @@ impl PduFactory {
             password.to_string(),
         );
         let mut pdu = Vec::new();
-        req.encode(&mut pdu).expect("Failed to encode BindRequest");
-        pdu
+        req.encode(&mut pdu)
+            .map_err(|e| format!("Failed to encode BindRequest: {:?}", e))?;
+        Ok(pdu)
     }
 
-    pub fn create_unbind_request(seq_num: u32) -> Vec<u8> {
+    pub fn create_unbind_request(seq_num: u32) -> Result<Vec<u8>, String> {
         let req = UnbindRequest::new(seq_num);
         let mut pdu = Vec::new();
         req.encode(&mut pdu)
-            .expect("Failed to encode UnbindRequest");
-        pdu
+            .map_err(|e| format!("Failed to encode UnbindRequest: {:?}", e))?;
+        Ok(pdu)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -133,12 +134,20 @@ impl PduFactory {
                 }
 
                 if mode_enum == SplitMode::Sar && total > 1 {
+                    let total_u8 = u8::try_from(total).map_err(|_| {
+                        format!(
+                            "Message splits into {} segments, exceeding the SAR limit of 255",
+                            total
+                        )
+                    })?;
+                    let segment_num = u8::try_from(i + 1)
+                        .map_err(|_| format!("Segment index {} exceeds u8 range", i))?;
                     req.optional_params
                         .push(Tlv::new_u16(tags::SAR_MSG_REF_NUM, sar_ref_num));
                     req.optional_params
-                        .push(Tlv::new_u8(tags::SAR_TOTAL_SEGMENTS, total as u8));
+                        .push(Tlv::new_u8(tags::SAR_TOTAL_SEGMENTS, total_u8));
                     req.optional_params
-                        .push(Tlv::new_u8(tags::SAR_SEGMENT_SEQNUM, (i + 1) as u8));
+                        .push(Tlv::new_u8(tags::SAR_SEGMENT_SEQNUM, segment_num));
                 }
 
                 req.encode(&mut pdu_bytes)
@@ -180,10 +189,18 @@ impl PduFactory {
                 }
 
                 if mode_enum == SplitMode::Sar && total > 1 {
+                    let total_u8 = u8::try_from(total).map_err(|_| {
+                        format!(
+                            "Message splits into {} segments, exceeding the SAR limit of 255",
+                            total
+                        )
+                    })?;
+                    let segment_num = u8::try_from(i + 1)
+                        .map_err(|_| format!("Segment index {} exceeds u8 range", i))?;
                     // SAR Mode: Add SAR TLVs for reconstruction at the receiver
                     req.add_tlv(Tlv::new_u16(tags::SAR_MSG_REF_NUM, sar_ref_num));
-                    req.add_tlv(Tlv::new_u8(tags::SAR_TOTAL_SEGMENTS, total as u8));
-                    req.add_tlv(Tlv::new_u8(tags::SAR_SEGMENT_SEQNUM, (i + 1) as u8));
+                    req.add_tlv(Tlv::new_u8(tags::SAR_TOTAL_SEGMENTS, total_u8));
+                    req.add_tlv(Tlv::new_u8(tags::SAR_SEGMENT_SEQNUM, segment_num));
                 }
 
                 req.encode(&mut pdu_bytes)
@@ -203,15 +220,15 @@ impl PduFactory {
         source: &str,
         ton: &str,
         npi: &str,
-    ) -> Vec<u8> {
+    ) -> Result<Vec<u8>, String> {
         let mut req = QuerySmRequest::new(seq_num, msg_id.to_string(), source.to_string());
         req.source_addr_ton = Ton::from(ton.parse::<u8>().unwrap_or(0));
         req.source_addr_npi = Npi::from(npi.parse::<u8>().unwrap_or(0));
 
         let mut pdu = Vec::new();
         req.encode(&mut pdu)
-            .expect("Failed to encode QuerySmRequest");
-        pdu
+            .map_err(|e| format!("Failed to encode QuerySmRequest: {:?}", e))?;
+        Ok(pdu)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -224,7 +241,7 @@ impl PduFactory {
         dest: &str,
         dest_ton: &str,
         dest_npi: &str,
-    ) -> Vec<u8> {
+    ) -> Result<Vec<u8>, String> {
         let mut req = CancelSmRequest::new(
             seq_num,
             msg_id.to_string(),
@@ -239,8 +256,8 @@ impl PduFactory {
 
         let mut pdu = Vec::new();
         req.encode(&mut pdu)
-            .expect("Failed to encode CancelSmRequest");
-        pdu
+            .map_err(|e| format!("Failed to encode CancelSmRequest: {:?}", e))?;
+        Ok(pdu)
     }
 
     pub fn create_replace_sm_request(
@@ -250,7 +267,7 @@ impl PduFactory {
         src_ton: &str,
         src_npi: &str,
         message: &str,
-    ) -> Vec<u8> {
+    ) -> Result<Vec<u8>, String> {
         let mut req = ReplaceSm::new(
             seq_num,
             msg_id.to_string(),
@@ -261,8 +278,9 @@ impl PduFactory {
         req.source_addr_npi = Npi::from(src_npi.parse::<u8>().unwrap_or(0));
 
         let mut pdu = Vec::new();
-        req.encode(&mut pdu).expect("Failed to encode ReplaceSm");
-        pdu
+        req.encode(&mut pdu)
+            .map_err(|e| format!("Failed to encode ReplaceSm: {:?}", e))?;
+        Ok(pdu)
     }
 }
 
@@ -272,7 +290,7 @@ mod tests {
 
     #[test]
     fn test_bind_request_creation() {
-        let pdu = PduFactory::create_bind_request(1, "Transmitter", "sys", "pwd");
+        let pdu = PduFactory::create_bind_request(1, "Transmitter", "sys", "pwd").unwrap();
         assert!(!pdu.is_empty());
         // Simple length check or more complex decode if needed
         assert!(pdu.len() > 16);

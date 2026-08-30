@@ -1,7 +1,8 @@
 use std::path::Path;
 
 fn main() -> std::io::Result<()> {
-    slint_build::compile("ui/appwindow.slint").unwrap();
+    slint_build::compile("ui/appwindow.slint")
+        .expect("Failed to compile Slint UI — check ui/appwindow.slint for syntax errors");
 
     if cfg!(target_os = "windows") {
         let icon_png = Path::new("icon.png");
@@ -35,9 +36,12 @@ fn main() -> std::io::Result<()> {
         res.set("LegalCopyright", "Copyright (c) 2024");
         res.set("CompanyName", "My Company"); // Replace with your company name
 
-        // Only set icon if the file exists (either pre-existing or generated)
         if icon_ico.exists() {
-            res.set_icon(icon_ico.to_str().unwrap());
+            if let Some(path_str) = icon_ico.to_str() {
+                res.set_icon(path_str);
+            } else {
+                println!("cargo:warning=Icon path contains non-UTF8 characters, skipping");
+            }
         }
 
         res.compile()?;

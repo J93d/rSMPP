@@ -20,7 +20,7 @@ async fn main() -> Result<(), slint::PlatformError> {
     let (tx_ui, mut rx_ui) = mpsc::channel::<UiEvent>(100);
 
     // Spawn the logic loop
-    tokio::spawn(async move {
+    let logic_handle = tokio::spawn(async move {
         let network_connector = Arc::new(RealNetworkConnector);
         run_main_loop(rx_cmd, tx_ui, network_connector).await;
     });
@@ -153,7 +153,14 @@ async fn main() -> Result<(), slint::PlatformError> {
         });
     });
 
-    ui.on_string_length(move |s| s.len() as i32);
+    ui.on_string_length(move |s| s.len().min(i32::MAX as usize) as i32);
 
-    ui.run()
+    let res = ui.run();
+
+    // FINDING-06: Await logic handle to monitor for panics
+    if let Err(e) = logic_handle.await {
+        eprintln!("Logic loop task panicked: {}", e);
+    }
+
+    res
 }

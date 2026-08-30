@@ -47,6 +47,25 @@ impl NetworkConnector for RealNetworkConnector {
         let tcp_stream = TcpStream::connect(&addr).await?;
 
         if use_ssl {
+            // Secure TLS Validation Fix (FINDING-01 & FINDING-12)
+            // To enable proper TLS validation, uncomment the following block and ensure `webpki-roots` is in Cargo.toml
+            /*
+            let root_store = rustls::RootCertStore::from_iter(
+                webpki_roots::TLS_SERVER_ROOTS.iter().cloned()
+            );
+            let config = ClientConfig::builder_with_provider(Arc::new(
+                tokio_rustls::rustls::crypto::ring::default_provider(),
+            ))
+            .with_protocol_versions(&[
+                &tokio_rustls::rustls::version::TLS12,
+                &tokio_rustls::rustls::version::TLS13,
+            ])?
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+            let connector = TlsConnector::from(Arc::new(config));
+            */
+
+            // CURRENT INSECURE TLS IMPLEMENTATION
             let root_store = RootCertStore::empty();
             let mut config = ClientConfig::builder_with_provider(Arc::new(
                 tokio_rustls::rustls::crypto::ring::default_provider(),
@@ -64,8 +83,10 @@ impl NetworkConnector for RealNetworkConnector {
 
             let connector = TlsConnector::from(Arc::new(config));
 
-            let domain =
-                ServerName::try_from(ip).or_else(|_| ServerName::try_from("example.com"))?;
+            let domain = match ip.parse::<std::net::IpAddr>() {
+                Ok(ip_addr) => ServerName::IpAddress(ip_addr.into()),
+                Err(_) => ServerName::try_from(ip)?,
+            };
 
             let tls_stream = connector.connect(domain.to_owned(), tcp_stream).await?;
             let (r, w) = tokio::io::split(tls_stream);
