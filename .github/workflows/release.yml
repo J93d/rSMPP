@@ -45,13 +45,13 @@ jobs:
     # - name: Upload Signed Artifact to GitHub Release
     #   # Only upload if this was triggered by a release
     #   if: github.event_name == 'release'
-    #   uses: softprops/action-gh-release@v1
+    #   uses: softprops/action-gh-release@v2
     #   with:
     #     files: signed-artifacts/rSMPP.exe
 
     - name: Upload Artifact to GitHub Release
       # Only upload if this was triggered by a release
       if: github.event_name == 'release'
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         files: rSMPP.exe
